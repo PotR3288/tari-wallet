@@ -34,6 +34,10 @@ function persist(record: StoredRecord): void {
   localStorage.setItem(storageKey(record.quote), JSON.stringify(record));
 }
 
+function removeStored(quote: X402Quote): void {
+  localStorage.removeItem(storageKey(quote));
+}
+
 /**
  * The shape the wallet's `x402Pay` (an `htlcFund` underneath) result must relay out of
  * band — the SDK's `HtlcFundResult` field names, relayed unmodified: `transactionId` is
@@ -78,7 +82,10 @@ export function hasTari(): boolean {
  *
  * On success, persists the full record (requestId, txHash, outputMask,
  * htlcOutputCommitmentHex, conditions, quote) and resolves with it. Throws
- * {@link X402WalletError} on rejected/failed.
+ * {@link X402WalletError} on rejected/failed — and clears the stored record
+ * first, so a re-served identical quote creates a fresh request instead of
+ * resuming (and re-throwing on) the dead one. Unknown/stale wallet states keep
+ * the record so a genuinely in-flight request still resumes after a reload.
  */
 export async function pay(
   quote: X402Quote,
@@ -90,22 +97,33 @@ export async function pay(
   const stored = loadStored(quote);
   let requestId: string;
   let result: X402PayResult;
-  if (stored) {
-    // Resume: poll the stored requestId through the same state machine — an
-    // already-submitted request resolves from the wallet's stored result.
-    ({ requestId, result } = await resume(tari, stored.requestId, opts));
-  } else {
-    ({ requestId, result } = await createAndSubmit<X402PayResult>(
-      tari,
-      { kind: "x402Pay", ...quote },
-      {
-        ...opts,
-        // Persist the bare {requestId, quote} immediately after create — BEFORE the
-        // first poll — so a reload while the approval popup is still open resumes
-        // the real in-flight request instead of creating a duplicate.
-        onCreated: (id) => persist({ requestId: id, quote }),
-      }
-    ));
+  try {
+    if (stored) {
+      // Resume: poll the stored requestId through the same state machine — an
+      // already-submitted request resolves from the wallet's stored result.
+      ({ requestId, result } = await resume(tari, stored.requestId, opts));
+    } else {
+      ({ requestId, result } = await createAndSubmit<X402PayResult>(
+        tari,
+        { kind: "x402Pay", ...quote },
+        {
+          ...opts,
+          // Persist the bare {requestId, quote} immediately after create — BEFORE the
+          // first poll — so a reload while the approval popup is still open resumes
+          // the real in-flight request instead of creating a duplicate.
+          onCreated: (id) => persist({ requestId: id, quote }),
+        }
+      ));
+    }
+  } catch (e) {
+    // Terminal rejected/failed clears the stored record so a re-served identical
+    // quote creates a fresh request instead of resuming (and re-throwing on) the
+    // dead one forever. Unknown/stale states keep their record — a genuinely
+    // in-flight request must still resume after a reload.
+    if (e instanceof X402WalletError && (e.status === "rejected" || e.status === "failed")) {
+      removeStored(quote);
+    }
+    throw e;
   }
 
   const txHash = requireString(result, "transactionId");
@@ -152,7 +170,7 @@ async function resume(
         return { requestId, result: record.result as X402PayResult };
       case "rejected":
       case "failed":
-        throw new X402WalletError(record.error ?? `Transaction ${record.status}.`, requestId);
+        throw new X402WalletError(record.error ?? `Transaction ${record.status}.`, requestId, record.status);
       case "pending":
       case "submitting":
         await new Promise<void>((resolve) => setTimeout(resolve, interval));

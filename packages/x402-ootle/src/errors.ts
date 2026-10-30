@@ -33,10 +33,13 @@ export class X402QuoteParseError extends Error {
 /** The wallet's approval popup rejected the request (or the request failed). */
 export class X402WalletError extends Error {
   readonly requestId?: string;
-  constructor(message: string, requestId?: string) {
+  /** The wallet's terminal status when the error came from a get/submit poll (`rejected`/`failed`). */
+  readonly status?: "rejected" | "failed";
+  constructor(message: string, requestId?: string, status?: "rejected" | "failed") {
     super(message);
     this.name = "X402WalletError";
     this.requestId = requestId;
+    this.status = status;
   }
 }
 

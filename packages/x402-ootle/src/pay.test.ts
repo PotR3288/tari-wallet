@@ -107,11 +107,9 @@ describe("pay", () => {
     expect(err).toBeInstanceOf(X402WalletError);
     expect((err as X402WalletError).message).toBe("User said no.");
     expect((err as X402WalletError).requestId).toBe("req-2");
-    // The in-flight {requestId, quote} was persisted pre-poll even though pay failed.
-    expect(JSON.parse(ls.dump()[storageKey(quote)] ?? "{}")).toEqual({
-      requestId: "req-2",
-      quote,
-    });
+    expect((err as X402WalletError).status).toBe("rejected");
+    // Terminal rejected clears the stored record — the dead requestId must not wedge.
+    expect(ls.dump()[storageKey(quote)]).toBeUndefined();
   });
 
   it("rejects on a failed request with a default message", async () => {
@@ -119,7 +117,56 @@ describe("pay", () => {
       tari_createTransactionRequest: () => ({ requestId: "req-3" }),
       tari_getTransactionRequest: () => ({ status: "failed" }),
     });
-    await expect(pay(makeQuote(), fast)).rejects.toThrow("Transaction failed.");
+    const quote = makeQuote();
+    await expect(pay(quote, fast)).rejects.toThrow("Transaction failed.");
+    // Terminal failed clears the stored record too.
+    expect(ls.dump()[storageKey(quote)]).toBeUndefined();
+  });
+
+  it("a rejected in-flight record is cleared, so a re-served identical quote creates a NEW request", async () => {
+    const quote = makeQuote();
+    // Pre-seed the in-flight record exactly as onCreated would have persisted it.
+    ls.setItem(storageKey(quote), JSON.stringify({ requestId: "req-dead", quote }));
+    let gets = 0;
+    makeTari({
+      tari_getTransactionRequest: (p) => {
+        gets += 1;
+        expect(p.requestId).toBe("req-dead");
+        return { status: "rejected", error: "User said no." };
+      },
+    });
+    await expect(pay(quote, fast)).rejects.toBeInstanceOf(X402WalletError);
+    expect(ls.dump()[storageKey(quote)]).toBeUndefined();
+
+    // Same quote re-served: pay() must NOT resume the dead request — it creates
+    // a fresh one and completes it.
+    const tari2 = makeTari({
+      tari_createTransactionRequest: () => ({ requestId: "req-fresh" }),
+      tari_getTransactionRequest: (p) => {
+        expect(p.requestId).toBe("req-fresh");
+        return { status: "approved" };
+      },
+      tari_submitTransactionRequest: () => SUBMIT_RESULT,
+    });
+    const record = await pay(quote, fast);
+    expect(gets).toBe(1);
+    expect(record.requestId).toBe("req-fresh");
+    expect(tari2.calls[0]?.method).toBe("tari_createTransactionRequest");
+    expect(JSON.parse(ls.dump()[storageKey(quote)] ?? "{}")).toEqual(record);
+  });
+
+  it("an unknown-status resume error keeps the record (reload of a live request must not lose it)", async () => {
+    const quote = makeQuote();
+    ls.setItem(storageKey(quote), JSON.stringify({ requestId: "req-odd", quote }));
+    makeTari({
+      tari_getTransactionRequest: () => ({ status: "some-new-wallet-state" }),
+    });
+    await expect(pay(quote, fast)).rejects.toThrow(/Unknown transaction request status/);
+    // Not a terminal rejected/failed — the record survives so a later retry can resume.
+    expect(JSON.parse(ls.dump()[storageKey(quote)] ?? "{}")).toEqual({
+      requestId: "req-odd",
+      quote,
+    });
   });
 
   it("resume: {requestId, quote} is persisted before the first poll, so a mid-approval reload genuinely resumes", async () => {

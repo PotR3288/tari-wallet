@@ -16,7 +16,7 @@ export interface TariRequestRecord {
     | "failed"
     | "submitted"
     | "signed-unbroadcast";
-  /** Present once status is `submitted` — the stored operation result. */
+  /** Present once status is terminal-with-result (`submitted` or `signed-unbroadcast`) — the stored operation result. */
   result?: unknown;
   /** Present on `rejected`/`failed` — the wallet's own error text. */
   error?: string;
@@ -76,7 +76,7 @@ export async function createAndSubmit<T>(
         return { requestId, result: record.result as T };
       case "rejected":
       case "failed":
-        throw new X402WalletError(record.error ?? `Transaction ${record.status}.`, requestId);
+        throw new X402WalletError(record.error ?? `Transaction ${record.status}.`, requestId, record.status);
       case "pending":
       case "submitting":
         await sleep(interval);
