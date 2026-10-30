@@ -3,10 +3,18 @@
 // boundaries -- request-creation time for a fail-fast static pass, and submit time with the live
 // chain epoch). Pure logic only, no provider/storage access, so every rejection path is
 // unit-testable on its own (x402.test.ts).
-import type { TransactionRequestOperation } from "../lib/messages";
+// The x402SignClaim gate (validateX402SignClaimTerms, below) reuses the same envelope checks for
+// the settlement side; its one import from the ootle-sdk (describeHtlcConditions) is pure tree
+// parsing, but does drag the SDK's module graph (and its wasm) into this file's importers --
+// acceptable everywhere it is used (the background worker already imports the SDK; the tests
+// want the real wasm anyway).
+import type { TransactionRequestOperation, X402PayTerms } from "../lib/messages";
 import { isValidOotleWalletAddress } from "../popup/format";
+import { describeHtlcConditions, fromHex, toHex } from "@chironbuilder/ootle-sdk";
+import { sha256 } from "@noble/hashes/sha2.js";
 
 export type X402PayOperation = Extract<TransactionRequestOperation, { kind: "x402Pay" }>;
+export type X402SignClaimOperation = Extract<TransactionRequestOperation, { kind: "x402SignClaim" }>;
 
 /** A SHA-256 hash rendered as exactly 64 lowercase hex characters -- what the HTLC claim leaf's
  * `HashLock` atom needs, and what `htlcConditions` (ootle-sdk) drops in verbatim with no check of
@@ -75,7 +83,7 @@ export function validateHtlcFundTerms(terms: { hashLockHex: string; refundEpoch:
  * tight enough to reject a quote a sane facilitator would issue.
  */
 export function validateX402PayTerms(
-  operation: X402PayOperation,
+  operation: X402PayTerms,
   live?: { currentEpoch: number; nowMs: number }
 ): void {
   validateHtlcFundTerms({ hashLockHex: operation.hashLockHex, refundEpoch: operation.refundEpoch }, "x402Pay");
@@ -106,5 +114,94 @@ export function validateX402PayTerms(
   }
   if (operation.resourceSha256 !== undefined && !HEX_64.test(operation.resourceSha256)) {
     throw new Error("x402Pay: resourceSha256 must be exactly 64 hex characters (the SHA-256 integrity pin for the served response).");
+  }
+}
+
+// ---------------------------------------------------------------------------
+// x402SignClaim -- the settlement-side gate.
+//
+// The merchant's wallet signs (never broadcasts) the HTLC claim for a quote the paying wallet
+// funded. The preimage it seals into the payload is the merchant's proof of payment, so this
+// gate is the last purely local check before anything touches the chain-facing build path
+// (background/x402SignOnly.ts, which additionally runs the SDK's own pre-reveal `verifyHtlc`
+// against live chain state). Two deliberate differences from the x402Pay live pass:
+//
+// - **Only the refund epoch bounds a claim.** The quote's `expiresAt` gates whether a *quote*
+//   may be accepted, not whether an already-funded HTLC may be settled: a merchant can
+//   legitimately settle slightly after the quote lapsed, as long as the payer cannot have
+//   refunded yet. So the live pass here checks `refundEpoch` alone.
+// - **The field set is fixed, structurally.** `x402SignClaim` builds ONLY the HTLC claim
+//   statement -- one StealthTransfer spending exactly the funded output into the claimant's
+//   own fresh output -- so any `instructions`/`followUpInstructions` key, or any key at all
+//   outside the five this kind defines, is rejected before anything is parsed further. A dApp
+//   can never smuggle extra value-moving instructions into a payload the user is told only
+//   signs a claim.
+// ---------------------------------------------------------------------------
+
+/** The fixed field set of the `x402SignClaim` kind -- nothing else may ride along. */
+const SIGN_CLAIM_FIELDS = new Set(["kind", "envelope", "preimageHex", "htlcOutputCommitmentHex", "conditions"]);
+
+/** 32-byte values in hex, case-tolerated (canonicalized by the consumers, not fed to atoms). */
+const HEX_64_ANY_CASE = /^[0-9a-f]{64}$/i;
+
+export function validateX402SignClaimTerms(operation: X402SignClaimOperation, live?: { currentEpoch: number }): void {
+  // Structural boundary first: the built tx must not move any funds other than the HTLC output
+  // into the claimant's destination, so this kind accepts no instruction arrays at all -- and
+  // no unknown keys either (a future field is a decision, not a smuggler's free pass).
+  if ("instructions" in operation || "followUpInstructions" in operation) {
+    throw new Error(
+      "x402SignClaim accepts no `instructions` or `followUpInstructions` fields -- it builds only the HTLC claim statement, and the built tx must move nothing but the HTLC output into the claimant's destination."
+    );
+  }
+  const unexpected = Object.keys(operation).filter((key) => !SIGN_CLAIM_FIELDS.has(key));
+  if (unexpected.length > 0) {
+    throw new Error(`x402SignClaim: unexpected fields (${unexpected.sort().join(", ")}) — the kind's field set is fixed by design.`);
+  }
+
+  // The envelope is the exact quote the paying wallet funded -- the same gate as x402Pay's
+  // static pass (shape, hashlock encoding, epoch sanity, amount, claimant well-formedness).
+  validateX402PayTerms(operation.envelope);
+
+  if (typeof operation.preimageHex !== "string" || !HEX_64_ANY_CASE.test(operation.preimageHex)) {
+    throw new Error("x402SignClaim: preimageHex must be exactly 64 hex characters (32 bytes).");
+  }
+  // Hash the preimage BEFORE anything is built: sealing a claim whose preimage doesn't open
+  // the hashlock would hand the facilitator a payload that can never settle.
+  if (toHex(sha256(fromHex(operation.preimageHex))) !== operation.envelope.hashLockHex) {
+    throw new Error("x402SignClaim: the preimage does not hash to the quote's hashLockHex — refusing to sign a claim that cannot be settled.");
+  }
+
+  if (typeof operation.htlcOutputCommitmentHex !== "string" || !HEX_64_ANY_CASE.test(operation.htlcOutputCommitmentHex)) {
+    throw new Error("x402SignClaim: htlcOutputCommitmentHex must be exactly 64 hex characters (the funded output's commitment).");
+  }
+
+  // The relayed conditions tree must BE this quote's HTLC: only its root is on-chain, so the
+  // tree is the claimant's only way to know which output to spend -- and a tree that disagrees
+  // with the quote means the caller is trying to settle a different HTLC than the one this
+  // purchase funded.
+  if (!Array.isArray(operation.conditions) || operation.conditions.length < 2 || !operation.conditions[0]) {
+    throw new Error(
+      "x402SignClaim: conditions must be the two-leaf [claim, refund] tree the paying wallet relayed (htlcFund's result) -- it cannot be recovered from the chain alone."
+    );
+  }
+  let described: { hashLockHex: string; refundEpoch: bigint };
+  try {
+    described = describeHtlcConditions(operation.conditions);
+  } catch {
+    throw new Error(
+      "x402SignClaim: conditions must be the two-leaf [claim, refund] tree the paying wallet relayed (htlcFund's result) -- it cannot be recovered from the chain alone."
+    );
+  }
+  if (described.hashLockHex.toLowerCase() !== operation.envelope.hashLockHex) {
+    throw new Error("x402SignClaim: the relayed conditions tree's hash lock does not match the quote's hashLockHex — refusing to spend a different HTLC than the one this purchase funded.");
+  }
+  if (described.refundEpoch !== BigInt(operation.envelope.refundEpoch)) {
+    throw new Error("x402SignClaim: the relayed conditions tree's refund epoch does not match the quote's refundEpoch — the payer's refund window and the claim must agree.");
+  }
+
+  if (live && operation.envelope.refundEpoch <= live.currentEpoch) {
+    throw new Error(
+      `x402SignClaim: the quote's refund epoch has already passed (epoch ${operation.envelope.refundEpoch}, current epoch ${live.currentEpoch}) -- the payer may already have refunded; there is nothing left to claim.`
+    );
   }
 }

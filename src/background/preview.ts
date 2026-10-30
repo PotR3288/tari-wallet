@@ -106,7 +106,10 @@ export async function previewOperation(account: WalletAccountApi, operation: Tra
   }
 
   const calls = ownAccountCalls(followUps!, component);
-  const maxFee = operation.maxFee !== undefined ? BigInt(operation.maxFee) : undefined;
+  // `x402SignClaim`'s fee is nested in its `envelope` (it never reaches this line -- its preview
+  // returns above with every other wallet-built kind -- but the `in`-narrowing also keeps the
+  // union honest without it).
+  const maxFee = "maxFee" in operation && operation.maxFee !== undefined ? BigInt(operation.maxFee) : undefined;
   try {
     let result: ExecuteResult;
     if (operation.kind === "instructions") {

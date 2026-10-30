@@ -97,3 +97,32 @@ describe("summarizeOperationForApproval: x402Pay", () => {
     expect(steps[4]).toBe("Routed via the facilitator at also not a url.");
   });
 });
+
+// The approval-popup summary for the `x402SignClaim` kind: the merchant-side settlement. The
+// copy's load-bearing line is the second one -- sign only, NOT submitted -- because confusing
+// this with a spend is the exact confusion Task 2.6's fuller popup treatment exists to prevent;
+// this test pins that the minimal case already says it.
+type X402SignClaimOperation = Extract<TransactionRequestOperation, { kind: "x402SignClaim" }>;
+
+function signClaim(): X402SignClaimOperation {
+  const { kind: _kind, ...terms } = envelope();
+  return {
+    kind: "x402SignClaim",
+    envelope: terms,
+    preimageHex: "cd".repeat(32),
+    htlcOutputCommitmentHex: "ab".repeat(32),
+    conditions: [],
+  };
+}
+
+describe("summarizeOperationForApproval: x402SignClaim", () => {
+  it("states plainly that it signs without submitting, prices the sale, and bounds the claim window", () => {
+    const { instructions, steps } = summarizeOperationForApproval(signClaim());
+    expect(instructions).toEqual([]);
+    expect(steps).toEqual([
+      "Signs the claim for your sale of https://example.com/report — 1 TARI to you.",
+      "Sign only — NOT submitted to the network. The settlement service submits it later, once the resource is served.",
+      "Claimable until epoch 520 — after that the buyer can refund instead.",
+    ]);
+  });
+});

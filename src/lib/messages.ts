@@ -37,6 +37,65 @@ export type ProviderMethod =
   | "tari_disconnect";
 
 /**
+ * The x402 payment-terms envelope: what an x402 facilitator (indexer) quotes for one HTTP
+ * resource. Declared once as its own interface because TWO kinds carry it: `x402Pay` (the paying
+ * wallet funds it, executing as an `htlcFund` -- the same HTLC-locked stealth output, built by the
+ * same internal path in background/index.ts, a thin mapping of these fields onto `htlcFund`'s
+ * with no duplicated builder logic) and `x402SignClaim` (the merchant's wallet settles the exact
+ * same quote by signing -- never broadcasting -- the HTLC claim). One declaration, so the two
+ * sides cannot drift apart.
+ */
+export interface X402PayTerms {
+  /** WHAT the user is buying -- shown on the approval popup, the only place they see it. */
+  resourceUrl: string;
+  /** Optional integrity pin for the served response, lowercase-or-mixed 64-hex SHA-256. */
+  resourceSha256?: string;
+  /** Price, raw integer base units (no decimals/scientific notation). */
+  amount: string;
+  /** The payment token (XTR = TARI_RESOURCE_ADDRESS). */
+  resourceAddress: string;
+  /** The merchant's wallet address -- becomes the HTLC output's claimant. */
+  claimantAddress: string;
+  /** SHA-256 of the claim secret, exactly 64 lowercase hex characters. */
+  hashLockHex: string;
+  /** HTLC refund leaf epoch (a chain epoch; see background/index.ts's x402 validation gate). */
+  refundEpoch: number;
+  /** The indexer's settle endpoint, where the payment is settled. */
+  facilitatorUrl: string;
+  /** Optional pin of the indexer's identity public key (the envelope carries it). */
+  facilitatorPubKeyHex?: string;
+  /** Quote expiry, ms since epoch. */
+  expiresAt: number;
+  maxFee?: string;
+}
+
+/**
+ * `x402SignClaim`'s result -- the signed-unbroadcast claim, everything the indexer facilitator
+ * needs to validate and (at settle) broadcast, without re-deriving anything. Produced by
+ * background/x402SignOnly.ts; the wallet itself never submits this transaction.
+ */
+export interface X402SignedClaimPayload {
+  /** The sealed, BOR-encoded transaction envelope, hex -- the artifact to POST to the
+   * facilitator's settle endpoint. (`sealTransaction` emits BOR bytes as base64; the wallet
+   * re-encodes to hex so every field of this result is lowercase hex, as the field name
+   * promises and the facilitator spec expects.) */
+  signedPayloadHex: string;
+  /** SHA-256 of the sealed envelope's BOR bytes, 64 lowercase hex -- a locally-computed
+   * digest for receipt matching and idempotency, NOT the chain's transaction id (which only
+   * exists once the facilitator broadcasts; the indexer derives its own). */
+  txHash: string;
+  /** The HTLC output this claim spends (its commitment, 64 lowercase hex) -- the facilitator
+   * validates this output against the quote. */
+  htlcOutputCommitment: string;
+  /** The quote's refund epoch, echoed from the envelope. */
+  refundEpoch: number;
+  /** The LAST chain epoch at which the claim path is still admissible: the claim leaf is
+   * `BeforeEpoch(refundEpoch)`, so this is `refundEpoch - 1`. The facilitator must not
+   * broadcast at/after `refundEpoch + 1`; at that point the payer can refund instead. */
+  validUntilEpoch: number;
+}
+
+/**
  * A dApp-proposed transaction's actual operation -- one variant per underlying account call.
  * Shared verbatim between `tari_createTransactionRequest`'s input and what a
  * `TransactionRequestRecord` (storage.ts) persists and later executes at submit time, so there is
@@ -133,37 +192,48 @@ export type TransactionRequestOperation =
       feeType?: "private" | "transparent";
       enforceFeeType?: boolean;
     }
-  // The x402 payment-terms envelope: what an x402 facilitator (indexer) quotes for one HTTP
-  // resource and this wallet pays for, end to end. Approving one executes as an `htlcFund` -- the
-  // same HTLC-locked stealth output, built by the same internal path in background/index.ts (a thin
-  // mapping of these fields onto `htlcFund`'s, no duplicated builder logic): the claimant reveals
-  // the SHA-256 preimage of `hashLockHex` to take payment before `refundEpoch`, and this account
-  // refunds after. The extra fields beyond `htlcFund`'s are what makes this a *purchase* rather
-  // than a bare swap leg: `resourceUrl` is WHAT the user is buying, and the approval popup is the
-  // only place they ever see it -- so every field here must render human-readably there (the
-  // popup case for this kind is expected alongside the others; see background/index.ts's
-  // `summarizeOperationForApproval`). Amounts are raw integer base-unit strings, as everywhere
-  // else in this union; `expiresAt` is when the facilitator's quote lapses, in ms since epoch.
+  // The x402 payment side: approving one executes as an `htlcFund` against the envelope's fields
+  // (see `X402PayTerms` above) -- the same HTLC-locked stealth output, built by the same internal
+  // path in background/index.ts (a thin mapping of these fields onto `htlcFund`'s, no duplicated
+  // builder logic): the claimant reveals the SHA-256 preimage of `hashLockHex` to take payment
+  // before `refundEpoch`, and this account refunds after. The extra fields beyond `htlcFund`'s
+  // are what makes this a *purchase* rather than a bare swap leg: `resourceUrl` is WHAT the user
+  // is buying, and the approval popup is the only place they ever see it -- so every field here
+  // must render human-readably there (the popup case for this kind is expected alongside the
+  // others; see background/index.ts's `summarizeOperationForApproval`).
+  | ({ kind: "x402Pay" } & X402PayTerms)
+  // The settlement side of an x402 purchase, run in the *merchant's* wallet (the HTLC claimant):
+  // builds, signs and seals the HTLC claim -- and stops. **The wallet does NOT broadcast.** The
+  // indexer facilitator holds the sealed payload and submits it at settle (serve-then-broadcast),
+  // because the preimage it carries is the merchant's proof of payment and must not touch the
+  // chain (not even the indexer's dry-run preflight) until the resource has been served.
+  //
+  // The signer is the claimant, and the claim leaf's `AccessRule` badge is satisfied by the
+  // signer's own normal transaction signature (per docs/architecture/stealth-and-htlc.md) -- no
+  // one-time-key dance, just `signTransaction`/`sealTransaction`. The result
+  // (`X402SignedClaimPayload`) is everything the facilitator needs to validate and later
+  // broadcast, without re-deriving anything.
+  //
+  // **Security boundary (structural):** this kind builds ONLY the HTLC claim statement -- one
+  // `StealthTransfer` instruction spending exactly the funded HTLC output into this account's own
+  // fresh stealth output, plus the transparent fee lane. There is deliberately no
+  // `instructions`/`followUpInstructions` field, and the runtime validation gate
+  // (background/x402.ts `validateX402SignClaimTerms`) rejects any request carrying keys outside
+  // this kind's fixed field set, so a dApp can never smuggle extra value-moving instructions
+  // into a payload the user is told "only signs a claim".
   | {
-      kind: "x402Pay";
-      resourceUrl: string;
-      /** Optional integrity pin for the served response, lowercase-or-mixed 64-hex SHA-256. */
-      resourceSha256?: string;
-      amount: string;
-      resourceAddress: string;
-      /** The merchant's wallet address -- becomes the HTLC output's claimant. */
-      claimantAddress: string;
-      /** SHA-256 of the claim secret, exactly 64 lowercase hex characters. */
-      hashLockHex: string;
-      /** HTLC refund leaf epoch (a chain epoch; see background/index.ts's x402 validation gate). */
-      refundEpoch: number;
-      /** The indexer's settle endpoint, where the wallet reports the payment. */
-      facilitatorUrl: string;
-      /** Optional pin of the indexer's identity public key (the envelope carries it). */
-      facilitatorPubKeyHex?: string;
-      /** Quote expiry, ms since epoch. */
-      expiresAt: number;
-      maxFee?: string;
+      kind: "x402SignClaim";
+      /** The quote being settled -- the exact `x402Pay` field set the paying wallet funded. */
+      envelope: X402PayTerms;
+      /** The SHA-256 preimage of `hashLockHex`, held by the claimant (merchant). Never leaves
+       * this device except inside the sealed payload handed to the facilitator. */
+      preimageHex: string;
+      /** The funded HTLC output's commitment (64 hex), and the two-leaf condition tree the
+       * paying wallet's `x402Pay` result relayed out of band -- only their root is on-chain, so
+       * the claimant cannot recover them from the chain alone (`htlcClaim` requires the same
+       * pair; see its doc comment in messages.ts). */
+      htlcOutputCommitmentHex: string;
+      conditions: object[];
     }
   // ---- Private spends ----------------------------------------------------------------------
   // The four operations that move value in or out of, or between, stealth (confidential) outputs.

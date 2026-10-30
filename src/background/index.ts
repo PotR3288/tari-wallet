@@ -41,7 +41,7 @@ import { approvalAmount, summarizeOperationForApproval, TARI_RESOURCE_ADDRESS } 
 import { classifyProviderError } from "../lib/messages";
 // The x402 validation gate (x402.ts): pure checks, kept out of this file so every rejection path
 // is unit-testable without a service worker.
-import { validateHtlcFundTerms, validateX402PayTerms } from "./x402";
+import { validateHtlcFundTerms, validateX402PayTerms, validateX402SignClaimTerms } from "./x402";
 import type {
   AccountSummary,
   AccountsChangedBroadcast,
@@ -644,6 +644,13 @@ async function handlePageRequest(message: PageRequestMessage, sender: chrome.run
         // time in `submitApprovedTransactionRequest`, right before the execution switch.
         validateX402PayTerms(operation);
       }
+      if (operation.kind === "x402SignClaim") {
+        // Same fail-fast rule for the settlement side: the sign-claim gate's static pass (quote
+        // terms, preimage-hash, relayed-conditions-vs-quote, structural field set) runs before
+        // anything is persisted; the live refund-epoch pass runs inside `buildSignedX402Claim`
+        // at submit time, against the chain epoch.
+        validateX402SignClaimTerms(operation);
+      }
       if ("enforceFeeType" in operation && operation.enforceFeeType && !operation.feeType) {
         throw new Error("enforceFeeType requires feeType to also be set.");
       }
@@ -774,6 +781,8 @@ function operationHistoryLabel(origin: string, operation: TransactionRequestOper
       return `${origin}: HTLC fund -> ${operation.claimantWalletAddress}`;
     case "x402Pay":
       return `${origin}: x402 payment -> ${operation.claimantAddress}`;
+    case "x402SignClaim":
+      return `${origin}: x402 claim (sign only) -> ${operation.envelope.resourceUrl}`;
     case "shield":
       return `${origin}: shield`;
     case "depositConfidential":
@@ -845,14 +854,16 @@ async function createTransactionRequest(
   // write (background/approvals.ts) always finds this record -- there is no window where the user
   // could click before it exists.
   await addTransactionRequest(record);
-  // Absent for `redeemStealthOutputWithPrivateFee` (no `feeType` field -- already always private)
-  // and for `x402Pay` (a payment-terms envelope, not a dApp-authored spend -- the fee is this
-  // wallet's own transparent default). Otherwise seeded from the dApp's own `feeType` hint if it
-  // gave one, else this wallet's own default -- `enforced` locks the popup's toggle instead of
-  // letting the user change it (background/index.ts's `tari_createTransactionRequest` handler
-  // already required `feeType` be set whenever `enforceFeeType` is).
+  // Absent for `redeemStealthOutputWithPrivateFee` (no `feeType` field -- already always private),
+  // for `x402Pay` (a payment-terms envelope, not a dApp-authored spend -- the fee is this
+  // wallet's own transparent default) and for `x402SignClaim` (the sign-only build path fixes
+  // the fee to the transparent lane by construction). Otherwise seeded from the dApp's own
+  // `feeType` hint if it gave one, else this wallet's own default -- `enforced` locks the popup's
+  // toggle instead of letting the user change it (background/index.ts's
+  // `tari_createTransactionRequest` handler already required `feeType` be set whenever
+  // `enforceFeeType` is).
   const feeChoice =
-    operation.kind === "redeemStealthOutputWithPrivateFee" || operation.kind === "x402Pay"
+    operation.kind === "redeemStealthOutputWithPrivateFee" || operation.kind === "x402Pay" || operation.kind === "x402SignClaim"
       ? undefined
       : {
           enforced: operation.enforceFeeType === true,
@@ -963,12 +974,19 @@ async function submitApprovedTransactionRequest(requestId: string): Promise<unkn
   const account = await getAccountById(record.accountId);
   if (!account) throw new Error("Could not resolve account.");
   const operation = record.operation;
-  const maxFee = operation.maxFee !== undefined ? BigInt(operation.maxFee) : undefined;
+  // `x402SignClaim`'s fee is nested in its `envelope` (and fixed to the transparent lane by the
+  // sign-only build path itself), so it is not among the kinds with a top-level `maxFee`.
+  const maxFee = "maxFee" in operation && operation.maxFee !== undefined ? BigInt(operation.maxFee) : undefined;
 
-  // `redeemStealthOutputWithPrivateFee` and `x402Pay` carry no `feeType` field (the former is
-  // always private; the latter is a payment-terms envelope whose fee is this wallet's own
-  // transparent default) -- every other kind resolves whatever `feeType` approval settled on.
-  const feeType = operation.kind === "redeemStealthOutputWithPrivateFee" || operation.kind === "x402Pay" ? undefined : operation.feeType;
+  // `redeemStealthOutputWithPrivateFee`, `x402Pay` and `x402SignClaim` carry no `feeType` field
+  // (the first is always private; `x402Pay` is a payment-terms envelope whose fee is this
+  // wallet's own transparent default; `x402SignClaim`'s fee is fixed to the transparent lane --
+  // background/x402SignOnly.ts's module header) -- every other kind resolves whatever `feeType`
+  // approval settled on.
+  const feeType =
+    operation.kind === "redeemStealthOutputWithPrivateFee" || operation.kind === "x402Pay" || operation.kind === "x402SignClaim"
+      ? undefined
+      : operation.feeType;
 
   const doExecute = async (): Promise<unknown> => {
     // The x402 validation gate's live pass: the refund epoch must still be in the future and the

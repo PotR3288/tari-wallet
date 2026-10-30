@@ -4,10 +4,13 @@
 // denials in background/index.ts): a facilitator handling "bad hashlock", "expired quote" and
 // "refund window already closed" identically would be stuck in a retry loop for the last of them.
 import { describe, expect, it } from "vitest";
-import type { TransactionRequestOperation } from "../lib/messages";
-import { validateHtlcFundTerms, validateX402PayTerms, X402_MAX_REFUND_EPOCHS_AHEAD } from "./x402";
+import type { TransactionRequestOperation, X402PayTerms } from "../lib/messages";
+import { validateHtlcFundTerms, validateX402PayTerms, validateX402SignClaimTerms, X402_MAX_REFUND_EPOCHS_AHEAD } from "./x402";
+import { htlcConditions } from "@chironbuilder/ootle-sdk";
+import { sha256 } from "@noble/hashes/sha2.js";
 
 type X402PayOperation = Extract<TransactionRequestOperation, { kind: "x402Pay" }>;
+type X402SignClaimOperation = Extract<TransactionRequestOperation, { kind: "x402SignClaim" }>;
 
 const CURRENT_EPOCH = 500;
 const NOW_MS = 1790000000000;
@@ -167,5 +170,138 @@ describe("validateHtlcFundTerms (the shared dApp-entry tightening -- same audit 
 
   it("rejects a non-integer refundEpoch string from a dApp's htlcFund request", () => {
     expect(() => validateHtlcFundTerms({ hashLockHex: "0f4a7d3b9c2e5186a0d1f2e3c4b5a6978897a6b5c4d3e2f10697a8b9c0d1e2f3", refundEpoch: "12.5" })).toThrow("htlcFund: refundEpoch must be a whole number of chain epochs");
+  });
+});
+
+// ---- x402SignClaim: the settlement-side gate -------------------------------------------------
+// Same distinct-message house style. The preimage/hashlock fixtures are REAL: the hashlock is
+// the actual SHA-256 of the preimage bytes, and the conditions fixture is a real
+// `htlcConditions` tree, so the gate is exercised against the exact shapes it will see live.
+const SC_PREIMAGE_HEX = "cd".repeat(32);
+const SC_HASHLOCK_HEX = Array.from(sha256(new Uint8Array(SC_PREIMAGE_HEX.length / 2).map((_, i) => parseInt(SC_PREIMAGE_HEX.slice(i * 2, i * 2 + 2), 16))))
+  .map((b) => b.toString(16).padStart(2, "0"))
+  .join("");
+const SC_REFUND_EPOCH = CURRENT_EPOCH + 20;
+
+function validSignClaimTerms(): X402PayTerms {
+  return {
+    resourceUrl: "https://example.com/report",
+    amount: "1000000",
+    resourceAddress: "resource_0101010101010101010101010101010101010101010101010101010101010101",
+    claimantAddress: "otl_esm_1v3sn0fajd7kwyc3j8pzgsc0eqwtv4xqjmrxq0r7vqmr5l2e8",
+    hashLockHex: SC_HASHLOCK_HEX,
+    refundEpoch: SC_REFUND_EPOCH,
+    facilitatorUrl: "https://facilitator.example.com/x402/settle",
+    expiresAt: NOW_MS + 60_000,
+  };
+}
+
+function validSignClaim(): X402SignClaimOperation {
+  return {
+    kind: "x402SignClaim",
+    envelope: validSignClaimTerms(),
+    preimageHex: SC_PREIMAGE_HEX,
+    htlcOutputCommitmentHex: "ab".repeat(32),
+    conditions: htlcConditions({
+      hashLockHex: SC_HASHLOCK_HEX,
+      refundEpoch: BigInt(SC_REFUND_EPOCH),
+      claimantPublicKeyHex: "11".repeat(32),
+      refunderPublicKeyHex: "22".repeat(32),
+    }),
+  };
+}
+
+describe("validateX402SignClaimTerms", () => {
+  it("accepts a well-formed settlement request whose preimage really hashes to the quote's lock", () => {
+    expect(() => validateX402SignClaimTerms(validSignClaim(), { currentEpoch: CURRENT_EPOCH })).not.toThrow();
+  });
+
+  // ---- the preimage IS the merchant's proof of payment: hash it before anything is signed ------
+  it("rejects a preimageHex of the wrong length", () => {
+    expect(() => validateX402SignClaimTerms({ ...validSignClaim(), preimageHex: "cd".repeat(31) }, { currentEpoch: CURRENT_EPOCH }))
+      .toThrow("x402SignClaim: preimageHex must be exactly 64 hex characters (32 bytes)");
+  });
+
+  it("rejects a preimage that does not hash to the quote's hashLockHex (distinct message)", () => {
+    expect(() => validateX402SignClaimTerms({ ...validSignClaim(), preimageHex: "ee".repeat(32) }, { currentEpoch: CURRENT_EPOCH }))
+      .toThrow("x402SignClaim: the preimage does not hash to the quote's hashLockHex");
+  });
+
+  it("rejects a malformed htlcOutputCommitmentHex", () => {
+    expect(() => validateX402SignClaimTerms({ ...validSignClaim(), htlcOutputCommitmentHex: "ab" }, { currentEpoch: CURRENT_EPOCH }))
+      .toThrow("x402SignClaim: htlcOutputCommitmentHex must be exactly 64 hex characters");
+  });
+
+  // ---- live pass: the only time bound for a claim is the refund epoch --------------------------
+  it("refuses to sign once the refund epoch has passed (distinct message)", () => {
+    expect(() => validateX402SignClaimTerms(validSignClaim(), { currentEpoch: SC_REFUND_EPOCH }))
+      .toThrow("x402SignClaim: the quote's refund epoch has already passed");
+  });
+
+  it("does NOT refuse a settlement whose quote expiresAt is past but whose refund epoch is not", () => {
+    // The claim window is bounded by the refund leaf, not the facilitator's quote expiry: a
+    // merchant may legitimately settle slightly after the quote lapsed, as long as the payer
+    // cannot have refunded yet.
+    const stale = validSignClaim();
+    stale.envelope.expiresAt = NOW_MS - 60_000;
+    expect(() => validateX402SignClaimTerms(stale, { currentEpoch: CURRENT_EPOCH })).not.toThrow();
+  });
+
+  // ---- structural security boundary: this kind ONLY builds the HTLC claim ----------------------
+  it("rejects a smuggled `instructions` field outright", () => {
+    const smuggled = { ...validSignClaim(), instructions: [] } as unknown as X402SignClaimOperation;
+    expect(() => validateX402SignClaimTerms(smuggled, { currentEpoch: CURRENT_EPOCH }))
+      .toThrow("x402SignClaim accepts no `instructions` or `followUpInstructions` fields");
+  });
+
+  it("rejects a smuggled `followUpInstructions` field outright", () => {
+    const smuggled = { ...validSignClaim(), followUpInstructions: [] } as unknown as X402SignClaimOperation;
+    expect(() => validateX402SignClaimTerms(smuggled, { currentEpoch: CURRENT_EPOCH }))
+      .toThrow("x402SignClaim accepts no `instructions` or `followUpInstructions` fields");
+  });
+
+  it("rejects any key outside the kind's fixed field set (unknown-field refusal)", () => {
+    const smuggled = { ...validSignClaim(), maxFee: "50000" } as unknown as X402SignClaimOperation;
+    expect(() => validateX402SignClaimTerms(smuggled, { currentEpoch: CURRENT_EPOCH }))
+      .toThrow("x402SignClaim: unexpected fields");
+  });
+
+  // ---- the relayed conditions tree must BE the quote's HTLC ------------------------------------
+  it("rejects a conditions tree whose hash lock differs from the quote's (distinct message)", () => {
+    const wrong = validSignClaim();
+    wrong.conditions = htlcConditions({
+      hashLockHex: "00".repeat(32),
+      refundEpoch: BigInt(SC_REFUND_EPOCH),
+      claimantPublicKeyHex: "11".repeat(32),
+      refunderPublicKeyHex: "22".repeat(32),
+    });
+    expect(() => validateX402SignClaimTerms(wrong, { currentEpoch: CURRENT_EPOCH }))
+      .toThrow("x402SignClaim: the relayed conditions tree's hash lock does not match the quote's hashLockHex");
+  });
+
+  it("rejects a conditions tree whose refund epoch differs from the quote's (distinct message)", () => {
+    const wrong = validSignClaim();
+    wrong.conditions = htlcConditions({
+      hashLockHex: SC_HASHLOCK_HEX,
+      refundEpoch: BigInt(SC_REFUND_EPOCH + 5),
+      claimantPublicKeyHex: "11".repeat(32),
+      refunderPublicKeyHex: "22".repeat(32),
+    });
+    expect(() => validateX402SignClaimTerms(wrong, { currentEpoch: CURRENT_EPOCH }))
+      .toThrow("x402SignClaim: the relayed conditions tree's refund epoch does not match the quote's refundEpoch");
+  });
+
+  it("rejects a conditions value that is not the two-leaf [claim, refund] tree", () => {
+    expect(() => validateX402SignClaimTerms({ ...validSignClaim(), conditions: [] }, { currentEpoch: CURRENT_EPOCH }))
+      .toThrow("x402SignClaim: conditions must be the two-leaf [claim, refund] tree the paying wallet relayed");
+    expect(() => validateX402SignClaimTerms({ ...validSignClaim(), conditions: "not-a-tree" as unknown as object[] }, { currentEpoch: CURRENT_EPOCH }))
+      .toThrow("x402SignClaim: conditions must be the two-leaf [claim, refund] tree the paying wallet relayed");
+  });
+
+  it("propagates the x402Pay envelope gate for malformed quote fields", () => {
+    const bad = validSignClaim();
+    bad.envelope.amount = "0";
+    expect(() => validateX402SignClaimTerms(bad, { currentEpoch: CURRENT_EPOCH }))
+      .toThrow("x402Pay: amount must be a positive whole number");
   });
 });

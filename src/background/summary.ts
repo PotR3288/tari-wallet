@@ -195,6 +195,22 @@ export function summarizeOperationForApproval(
         ],
         warning: promiseWarning(operation.minimumValuePromise, "the recipient's new output", fmt),
       };
+    // The settlement side of an x402 purchase (see messages.ts): this account IS the merchant,
+    // claiming its own sale. The fact that separates it from every other kind here is that
+    // approving SIGNS but never SUBMITS -- the sealed claim goes to the facilitator, which
+    // broadcasts at settle. A user must never confuse this with a spend, so that is the second
+    // line, not a footnote.
+    case "x402SignClaim": {
+      const price = approvalAmount(operation.envelope.amount, operation.envelope.resourceAddress, divisibility);
+      return {
+        instructions: [],
+        steps: [
+          `Signs the claim for your sale of ${resourceSite(operation.envelope.resourceUrl)} — ${price} to you.`,
+          "Sign only — NOT submitted to the network. The settlement service submits it later, once the resource is served.",
+          `Claimable until epoch ${BigInt(operation.envelope.refundEpoch).toString()} — after that the buyer can refund instead.`,
+        ],
+      };
+    }
     case "htlcClaim":
       return {
         instructions: [],
