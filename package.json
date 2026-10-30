@@ -6,11 +6,11 @@
   "private": true,
   "type": "module",
   "scripts": {
-    "build": "vite build",
+    "build": "vite build && pnpm --filter @potr3288/x402-ootle build",
     "package": "vite build && node scripts/make-store-zip.mjs",
     "dev": "vite build --watch",
-    "typecheck": "tsc --noEmit",
-    "test": "vitest run",
+    "typecheck": "tsc --noEmit && pnpm --filter @potr3288/x402-ootle typecheck",
+    "test": "vitest run && pnpm --filter @potr3288/x402-ootle test",
     "test:watch": "vitest",
     "test:crypto": "tsx scripts/test-crypto.ts"
   },

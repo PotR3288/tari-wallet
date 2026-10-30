@@ -1,3 +1,6 @@
+packages:
+  - "packages/*"
+
 # pnpm blocks every dependency's install-time (preinstall/install/postinstall) scripts by
 # default -- the single most common real-world npm supply-chain attack vector, since a
 # compromised package's postinstall script runs with full filesystem/network access at install

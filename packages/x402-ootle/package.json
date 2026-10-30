@@ -1,0 +1,28 @@
+{
+  "name": "@potr3288/x402-ootle",
+  "version": "0.1.0",
+  "description": "Client library for x402 HTTP payments over the Tari Ootle wallet extension: 402-quote capture, pay with persistence+resume, facilitator settlement, body integrity verification.",
+  "type": "module",
+  "license": "MIT",
+  "main": "./dist/index.js",
+  "types": "./dist/index.d.ts",
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "import": "./dist/index.js"
+    }
+  },
+  "files": [
+    "dist"
+  ],
+  "scripts": {
+    "build": "tsc -p tsconfig.build.json",
+    "typecheck": "tsc --noEmit",
+    "test": "vitest run",
+    "test:watch": "vitest"
+  },
+  "devDependencies": {
+    "typescript": "^7.0.2",
+    "vitest": "^4.1.10"
+  }
+}
