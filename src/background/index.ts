@@ -36,6 +36,9 @@ import { fromHex as fromHexString, toHex as toHexString } from "../lib/vault";
 import { summarizeInstruction } from "../lib/instructionSummary";
 import { formatBalanceAmountGrouped, formatMaxFee } from "../popup/format";
 import { classifyProviderError } from "../lib/messages";
+// The x402 validation gate (x402.ts): pure checks, kept out of this file so every rejection path
+// is unit-testable without a service worker.
+import { validateHtlcFundTerms, validateX402PayTerms } from "./x402";
 import type {
   AccountSummary,
   AccountsChangedBroadcast,
@@ -612,6 +615,11 @@ async function handlePageRequest(message: PageRequestMessage, sender: chrome.run
         refundEpoch: string;
         maxFee?: string;
       };
+      // The dApp-entry half of the audit fix (security-audit-deepseek-v4-pro.md §2): the SDK's own
+      // `htlcFund` validation is internal to the ootle-sdk and untouchable from this repo, so the
+      // raw `hashLockHex`/`refundEpoch` a dApp hands over are tightened here, at this repo's
+      // boundary, through the same helper the x402Pay gate uses (see x402.ts).
+      validateHtlcFundTerms(p);
       const operation: TransactionRequestOperation = { kind: "htlcFund", ...p };
       return createAndWaitToSubmit(origin, site.accountId, operation);
     }
@@ -621,6 +629,18 @@ async function handlePageRequest(message: PageRequestMessage, sender: chrome.run
       if (!site) throw new Error("Site is not connected. Call tari_requestAccounts first.");
       const operation = params as TransactionRequestOperation;
       if (operation.kind === "instructions") assertNoStealthTransferInstruction(operation.instructions);
+      if (operation.kind === "htlcFund") {
+        // Same tightening as the deprecated `tari_htlcFund` wrapper above, at the second way a
+        // dApp can hand over raw HTLC terms -- one helper, both entries (see x402.ts).
+        validateHtlcFundTerms(operation);
+      }
+      if (operation.kind === "x402Pay") {
+        // The x402 validation gate's static pass: everything checkable without the chain, so a
+        // malformed envelope is refused before anything is persisted or an approval window is
+        // popped. The live pass (refund epoch still future, quote not expired) reruns at submit
+        // time in `submitApprovedTransactionRequest`, right before the execution switch.
+        validateX402PayTerms(operation);
+      }
       if ("enforceFeeType" in operation && operation.enforceFeeType && !operation.feeType) {
         throw new Error("enforceFeeType requires feeType to also be set.");
       }
@@ -1137,6 +1157,17 @@ async function submitApprovedTransactionRequest(requestId: string): Promise<unkn
   const feeType = operation.kind === "redeemStealthOutputWithPrivateFee" || operation.kind === "x402Pay" ? undefined : operation.feeType;
 
   const doExecute = async (): Promise<unknown> => {
+    // The x402 validation gate's live pass: the refund epoch must still be in the future and the
+    // facilitator's quote must not have expired -- checked against the chain RIGHT HERE, before
+    // the execution switch, not just at request-creation time (a quote can lapse while it sits
+    // pending). The current epoch comes from the indexer provider the `htlcFund` this executes as
+    // would use anyway; no epoch cadence is assumed (see validateX402PayTerms' own doc comment for
+    // how the plan's "~60 minutes of epochs" bound resolved).
+    if (operation.kind === "x402Pay") {
+      const local = requireLocalAccount(account, "Funding an HTLC");
+      const currentEpoch = await (await local.getProvider()).getCurrentEpoch();
+      validateX402PayTerms(operation, { currentEpoch, nowMs: Date.now() });
+    }
     // These kinds exist to spend one bounded amount (the revealed bucket); their follow-up
     // instructions run under this account's own signature, so a withdraw (or any non-deposit call)
     // on the account itself would spend beyond what the approval stated.
