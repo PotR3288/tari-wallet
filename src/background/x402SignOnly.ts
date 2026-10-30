@@ -27,7 +27,7 @@
 // wallet-boundary checks on top, it does not replace them.
 import type { TransactionRequestOperation, X402SignedClaimPayload } from "../lib/messages";
 import { validateX402SignClaimTerms, type X402SignClaimOperation } from "./x402";
-import { buildHtlcSpendStatement, fromHex } from "@chironbuilder/ootle-sdk";
+import { buildHtlcSpendStatement, describeHtlcConditions, fromHex } from "@chironbuilder/ootle-sdk";
 import type { HtlcExpectations } from "@chironbuilder/ootle-sdk";
 import {
   TransactionBuilder,
@@ -100,12 +100,24 @@ export function buildX402ClaimStatement(params: {
   destinationWalletAddress: string;
   resourceAddress: string;
 }): string {
-  const claimLeaf = Array.isArray(params.conditions) ? params.conditions[0] : undefined;
-  if (!claimLeaf) {
+  // Hygiene fix (review M4): this function is exported -- the real-wasm round-trip test drives
+  // it directly -- so it must not lean on `validateX402SignClaimTerms` having already checked the
+  // tree. Chosen over making it module-private so the round-trip stays directly testable; the
+  // cost is this re-check, which is the SDK's own parser: if `describeHtlcConditions` cannot read
+  // the tree as a two-leaf [claim, refund] HTLC, no claim statement can be built from it.
+  if (!Array.isArray(params.conditions) || params.conditions.length < 2 || !params.conditions[0]) {
     throw new Error(
       "x402SignClaim: conditions must be the two-leaf [claim, refund] tree the paying wallet relayed (htlcFund's result) -- it cannot be recovered from the chain alone."
     );
   }
+  try {
+    describeHtlcConditions(params.conditions);
+  } catch {
+    throw new Error(
+      "x402SignClaim: conditions must be the two-leaf [claim, refund] tree the paying wallet relayed (htlcFund's result) -- it cannot be recovered from the chain alone."
+    );
+  }
+  const claimLeaf = params.conditions[0];
   return buildHtlcSpendStatement({
     network: params.network,
     conditions: params.conditions,

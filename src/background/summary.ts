@@ -207,7 +207,9 @@ export function summarizeOperationForApproval(
         steps: [
           `Signs the claim for your sale of ${resourceSite(operation.envelope.resourceUrl)} — ${price} to you.`,
           "Sign only — NOT submitted to the network. The settlement service submits it later, once the resource is served.",
-          `Claimable until epoch ${BigInt(operation.envelope.refundEpoch).toString()} — after that the buyer can refund instead.`,
+          // The claim window in the user's wall-clock time (the quote's own deadline), not a raw
+          // chain epoch a human cannot read -- same rule as x402Pay's quote-expiry line.
+          `Claimable until ${new Date(operation.envelope.expiresAt).toLocaleString()} — after that the buyer can refund instead.`,
         ],
       };
     }

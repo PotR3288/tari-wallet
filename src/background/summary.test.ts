@@ -98,10 +98,11 @@ describe("summarizeOperationForApproval: x402Pay", () => {
   });
 });
 
-// The approval-popup summary for the `x402SignClaim` kind: the merchant-side settlement. The
-// copy's load-bearing line is the second one -- sign only, NOT submitted -- because confusing
-// this with a spend is the exact confusion Task 2.6's fuller popup treatment exists to prevent;
-// this test pins that the minimal case already says it.
+// The approval-popup summary for the `x402SignClaim` kind: the merchant-side settlement, with
+// the full Task 2.6 fact set -- the resource site and human-readable price up front (never a raw
+// base-unit integer with a token symbol), the load-bearing sign-only line second (confusing this
+// with a spend is the exact confusion this popup treatment exists to prevent), and the claim
+// window in the user's wall-clock time, not a chain epoch a human cannot read.
 type X402SignClaimOperation = Extract<TransactionRequestOperation, { kind: "x402SignClaim" }>;
 
 function signClaim(): X402SignClaimOperation {
@@ -116,13 +117,35 @@ function signClaim(): X402SignClaimOperation {
 }
 
 describe("summarizeOperationForApproval: x402SignClaim", () => {
-  it("states plainly that it signs without submitting, prices the sale, and bounds the claim window", () => {
+  it("states plainly that it signs without submitting, prices the sale, and bounds the claim window in wall-clock time", () => {
     const { instructions, steps } = summarizeOperationForApproval(signClaim());
     expect(instructions).toEqual([]);
+    // 1. What is being settled and for how much: the resource's site, and the price through
+    //    approvalAmount (1 TARI, never "1000000 TARI").
+    // 2. The load-bearing line: sign only, NOT submitted.
+    // 3. The claim window as the user's wall-clock time (the quote's own deadline), same rule as
+    //    x402Pay's quote-expiry line -- not the raw chain epoch.
     expect(steps).toEqual([
       "Signs the claim for your sale of https://example.com/report — 1 TARI to you.",
       "Sign only — NOT submitted to the network. The settlement service submits it later, once the resource is served.",
-      "Claimable until epoch 520 — after that the buyer can refund instead.",
+      `Claimable until ${new Date(NOW_MS + 60_000).toLocaleString()} — after that the buyer can refund instead.`,
     ]);
+  });
+
+  it("never renders a raw base-unit integer with a token symbol when the resource isn't the well-known TARI", () => {
+    const other = "resource_" + "cd".repeat(32);
+    const operation = signClaim();
+    operation.envelope.resourceAddress = other;
+    operation.envelope.amount = "7";
+    const { steps } = summarizeOperationForApproval(operation);
+    // Unknown resource -> no guessed scale: base units, labelled by the truncated address.
+    expect(steps?.[0]).toBe(`Signs the claim for your sale of https://example.com/report — 7 base units of ${shortId(other)} to you.`);
+  });
+
+  it("degrades instead of crashing on a malformed resource URL", () => {
+    const operation = signClaim();
+    operation.envelope.resourceUrl = "not a url at all";
+    const { steps } = summarizeOperationForApproval(operation);
+    expect(steps?.[0]).toBe("Signs the claim for your sale of not a url at all — 1 TARI to you.");
   });
 });

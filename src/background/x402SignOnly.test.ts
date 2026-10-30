@@ -148,6 +148,25 @@ describe("buildX402ClaimStatement (real-wasm round-trip)", () => {
       })
     ).toThrow("x402SignClaim: conditions must be the two-leaf [claim, refund] tree the paying wallet relayed");
   });
+
+  // The M4 hygiene fix: buildX402ClaimStatement is exported, so it re-checks the tree shape
+  // itself (describeHtlcConditions) rather than trusting validateX402SignClaimTerms to have run.
+  // A non-empty value that is not a parseable two-leaf HTLC tree must be refused here too, not
+  // just by the gate.
+  it("refuses a non-empty conditions value the SDK's own parser cannot read as an HTLC tree", () => {
+    const fixture = makeFixture();
+    expect(() =>
+      buildX402ClaimStatement({
+        network: fixture.network,
+        conditions: [{ not: "a claim leaf" }],
+        preimageHex: PREIMAGE_HEX,
+        mask: fixture.fundWitness.mask,
+        value: AMOUNT,
+        destinationWalletAddress: fixture.claimantWalletAddress,
+        resourceAddress: RES,
+      })
+    ).toThrow("x402SignClaim: conditions must be the two-leaf [claim, refund] tree the paying wallet relayed");
+  });
 });
 
 describe("buildSignedX402Claim (offline real-crypto end to end: decrypt -> statement -> sign -> seal, no submit)", () => {
