@@ -11,6 +11,7 @@ import { shortId, summarizeOperationForApproval } from "./summary";
 type X402PayOperation = Extract<TransactionRequestOperation, { kind: "x402Pay" }>;
 
 const TARI = "resource_0101010101010101010101010101010101010101010101010101010101010101";
+const CLAIMANT = "otl_esm_1v3sn0fajd7kwyc3j8pzgsc0eqwtv4xqjmrxq0r7vqmr5l2e8";
 const NOW_MS = 1790000000000;
 
 function envelope(overrides: Partial<X402PayOperation> = {}): X402PayOperation {
@@ -19,7 +20,7 @@ function envelope(overrides: Partial<X402PayOperation> = {}): X402PayOperation {
     resourceUrl: "https://example.com/report",
     amount: "1000000",
     resourceAddress: TARI,
-    claimantAddress: "otl_esm_1v3sn0fajd7kwyc3j8pzgsc0eqwtv4xqjmrxq0r7vqmr5l2e8",
+    claimantAddress: CLAIMANT,
     hashLockHex: "0f4a7d3b9c2e5186a0d1f2e3c4b5a6978897a6b5c4d3e2f10697a8b9c0d1e2f3",
     refundEpoch: 520,
     facilitatorUrl: "https://facilitator.example.com/x402/settle",
@@ -44,19 +45,21 @@ describe("summarizeOperationForApproval: x402Pay", () => {
     );
     // 1. What is bought: the resource URL's site -- the path is meaningful, so the full URL.
     expect(steps[0]).toBe("Buys https://example.com/report for 1 TARI.");
-    // 2. The quote expiry, in the user's wall-clock time, labelled plainly.
-    expect(steps[1]).toBe(`Quote expires ${new Date(NOW_MS + 60_000).toLocaleString()} — don't approve after that time.`);
-    expect(steps[1].startsWith("Quote expires ")).toBe(true);
-    // 3. The conditional-payment deal: claim-by-serving, refund-by-default, in one short line.
-    expect(steps[2]).toBe(
+    // 2. The payee: who receives the money, truncated to an eyeball-matchable shortId.
+    expect(steps[1]).toBe(`Paid to ${shortId(CLAIMANT)}.`);
+    // 3. The quote expiry, in the user's wall-clock time, labelled plainly.
+    expect(steps[2]).toBe(`Quote expires ${new Date(NOW_MS + 60_000).toLocaleString()} — don't approve after that time.`);
+    expect(steps[2]?.startsWith("Quote expires ")).toBe(true);
+    // 4. The conditional-payment deal: claim-by-serving, refund-by-default, in one short line.
+    expect(steps[3]).toBe(
       "Conditional payment: the merchant can only take it by serving the resource, and it refunds to you automatically if they don't in time.",
     );
-    // 4. The facilitator: host, plus the truncated identity key.
+    // 5. The facilitator: host, plus the truncated identity key.
     const pubkey = "e5f6a7b8c9d0e1f2a3b4c5d6e7f8091a2b3c4d5e6f708192a3b4c5d6e7f8091a";
-    expect(steps[3]).toBe(`Routed via the facilitator at facilitator.example.com (key ${shortId(pubkey)}).`);
-    // 5. The integrity pin, truncated first/last 8 and deliberately last.
-    expect(steps[4]).toBe("Response pinned to SHA-256 a3f5c0d1…5c6d7e8f.");
-    expect(steps).toHaveLength(5);
+    expect(steps[4]).toBe(`Routed via the facilitator at facilitator.example.com (key ${shortId(pubkey)}).`);
+    // 6. The integrity pin, truncated first/last 8 and deliberately last.
+    expect(steps[5]).toBe("Response pinned to SHA-256 a3f5c0d1…5c6d7e8f.");
+    expect(steps).toHaveLength(6);
   });
 
   it("shows only the hostname when the resource path is bare", () => {
@@ -66,10 +69,11 @@ describe("summarizeOperationForApproval: x402Pay", () => {
 
   it("renders the base case with every optional field absent", () => {
     const steps = stepsOf(envelope());
-    expect(steps).toHaveLength(4);
+    expect(steps).toHaveLength(5);
     expect(steps[0]).toBe("Buys https://example.com/report for 1 TARI.");
+    expect(steps[1]).toBe(`Paid to ${shortId(CLAIMANT)}.`);
     // No facilitator key suffix, no SHA-256 pin line.
-    expect(steps[3]).toBe("Routed via the facilitator at facilitator.example.com.");
+    expect(steps[4]).toBe("Routed via the facilitator at facilitator.example.com.");
     expect(steps.join("\n")).not.toContain("SHA-256");
     expect(steps.join("\n")).not.toContain("key ");
   });
@@ -90,6 +94,6 @@ describe("summarizeOperationForApproval: x402Pay", () => {
     );
     // The raw string is still shown (it's the only identity the resource has) but nothing throws.
     expect(steps[0]).toBe("Buys not a url at all for 1 TARI.");
-    expect(steps[3]).toBe("Routed via the facilitator at also not a url.");
+    expect(steps[4]).toBe("Routed via the facilitator at also not a url.");
   });
 });

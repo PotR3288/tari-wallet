@@ -132,6 +132,10 @@ export function summarizeOperationForApproval(
         instructions: [],
         steps: [
           `Buys ${resourceSite(operation.resourceUrl)} for ${fmt(operation.amount)}.`,
+          // The payee, back from the old background stub: the one line that says WHO ends up
+          // with the money. Terse, because the conditional-payment line below already covers
+          // when/how the merchant can actually take it.
+          `Paid to ${shortId(operation.claimantAddress)}.`,
           // The fee is NOT a step here: like every other kind, it rides the approval's own
           // `maxFee` field (formatMaxFee in createTransactionRequest), rendered by the popup in
           // the same place for every operation.
