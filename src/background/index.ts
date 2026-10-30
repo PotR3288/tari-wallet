@@ -42,6 +42,7 @@ import { classifyProviderError } from "../lib/messages";
 // The x402 validation gate (x402.ts): pure checks, kept out of this file so every rejection path
 // is unit-testable without a service worker.
 import { validateHtlcFundTerms, validateX402PayTerms, validateX402SignClaimTerms } from "./x402";
+import { buildSignedX402Claim } from "./x402SignOnly";
 import type {
   AccountSummary,
   AccountsChangedBroadcast,
@@ -1163,6 +1164,14 @@ async function submitApprovedTransactionRequest(requestId: string): Promise<unkn
           record.previewedHtlcValue !== undefined ? { expected: { amount: BigInt(record.previewedHtlcValue) } } : {}
         );
       }
+      // The settlement side: build, sign and seal the claim -- and STOP. No submit, no preflight,
+      // no dry run: the preimage must not reach the indexer (or anything else) before the
+      // facilitator broadcasts at settle. `buildSignedX402Claim` is the entire path
+      // (background/x402SignOnly.ts); its result is the payload the dApp POSTs to the
+      // facilitator, and the request record below marks it "submitted" only in the sense that
+      // the *wallet's* part is done -- the payload itself is the caller's to deliver.
+      case "x402SignClaim":
+        return buildSignedX402Claim(requireLocalAccount(account, "Signing an HTLC claim"), operation);
       case "htlcRefund": {
         const local = requireLocalAccount(account, "Refunding an HTLC");
         return local.htlcRefund(
