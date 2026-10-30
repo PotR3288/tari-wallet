@@ -8,7 +8,14 @@ import { X402WalletError } from "./errors.js";
 
 /** A JSON-RPC-ish request record as returned by `tari_getTransactionRequest`. */
 export interface TariRequestRecord {
-  status: "pending" | "approved" | "rejected" | "failed" | "submitted";
+  status:
+    | "pending"
+    | "submitting"
+    | "approved"
+    | "rejected"
+    | "failed"
+    | "submitted"
+    | "signed-unbroadcast";
   /** Present once status is `submitted` — the stored operation result. */
   result?: unknown;
   /** Present on `rejected`/`failed` — the wallet's own error text. */
@@ -37,7 +44,11 @@ const sleep = (ms: number) => new Promise<void>((resolve) => setTimeout(resolve,
 export async function createAndSubmit<T>(
   tari: TariProvider,
   operation: Record<string, unknown>,
-  opts?: { pollIntervalMs?: number }
+  opts?: {
+    pollIntervalMs?: number;
+    /** Called with the requestId immediately after create, before the first poll. */
+    onCreated?: (requestId: string) => void;
+  }
 ): Promise<{ requestId: string; result: T }> {
   const interval = opts?.pollIntervalMs ?? 700;
   const created = (await tari.request({
@@ -48,6 +59,7 @@ export async function createAndSubmit<T>(
   if (typeof requestId !== "string" || requestId === "") {
     throw new Error("tari_createTransactionRequest did not return a requestId.");
   }
+  opts?.onCreated?.(requestId);
   for (;;) {
     const record = (await tari.request({
       method: "tari_getTransactionRequest",
@@ -60,11 +72,13 @@ export async function createAndSubmit<T>(
           params: { requestId },
         })) as T };
       case "submitted":
+      case "signed-unbroadcast":
         return { requestId, result: record.result as T };
       case "rejected":
       case "failed":
         throw new X402WalletError(record.error ?? `Transaction ${record.status}.`, requestId);
       case "pending":
+      case "submitting":
         await sleep(interval);
         break;
       default:

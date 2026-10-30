@@ -45,7 +45,12 @@ export interface X402Quote {
 export interface X402PaymentRecord {
   /** The wallet-side transaction-request id — resume polling with this after a reload. */
   requestId: string;
-  /** The wallet's local digest (SHA-256 of the sealed BOR bytes), NOT a chain tx id. */
+  /**
+   * The funding transaction's on-chain transaction id (`transactionId` in the wallet's
+   * `HtlcFundResult`). The `localDigest`-style "local SHA-256 of sealed BOR bytes"
+   * semantics belong only to the `x402SignClaim` result's `txHash`, which `settle()`
+   * consumes — not to this funding record.
+   */
   txHash: string;
   /** The output mask from the `x402Pay`/`htlcFund` result — required by `htlcRefund`. */
   outputMask: string;

@@ -34,10 +34,12 @@ try {
   if (!(e instanceof X402PaymentRequired)) throw e;
 
   // 2. Pay: drives the wallet's create/get/submit flow with { kind: "x402Pay", ...quote },
-  //    polls at `pollIntervalMs` (default 700ms), and persists requestId, txHash,
-  //    outputMask, htlcOutputCommitmentHex, conditions + the quote to localStorage
-  //    (keyed by hashLockHex) — a page reload resumes the same requestId, and an
-  //    already-submitted request resolves from the wallet's stored result.
+  //    polls at `pollIntervalMs` (default 700ms), and persists {requestId, quote} to
+  //    localStorage (keyed by hashLockHex) immediately after create — before the first
+  //    poll — then merges in txHash (the chain transaction id), outputMask,
+  //    htlcOutputCommitmentHex, conditions on success. A reload mid-approval resumes
+  //    the same requestId, and an already-submitted request resolves from the
+  //    wallet's stored result.
   const record = await pay(e.quote);
 
   // (merchant side serves the article here and signs the claim — see signClaim())
@@ -80,5 +82,7 @@ Errors are one distinct class per rejection cause (`X402PaymentRequired`,
 
 See [`docs/x402-facilitator.md`](../../docs/x402-facilitator.md) in the host repo for
 the settle/settlement endpoint contract, the `localDigest` idempotency convention
-(the wallet's `txHash` is the SHA-256 of the sealed BOR bytes, not a chain tx id),
+(the signed claim's `txHash` — the wallet's `localDigest` — is the SHA-256 of the
+sealed BOR bytes, not a chain tx id; the funding record's `txHash` IS the chain
+transaction id),
 and the hold-then-broadcast settlement ordering.

@@ -34,11 +34,15 @@ function persist(record: StoredRecord): void {
   localStorage.setItem(storageKey(record.quote), JSON.stringify(record));
 }
 
-/** The shape the wallet's `x402Pay` (an `htlcFund` underneath) result must relay out of band. */
+/**
+ * The shape the wallet's `x402Pay` (an `htlcFund` underneath) result must relay out of
+ * band — the SDK's `HtlcFundResult` field names, relayed unmodified: `transactionId` is
+ * the chain transaction id, `ownCommitment` the funded HTLC output's commitment.
+ */
 interface X402PayResult {
-  txHash?: unknown;
+  transactionId?: unknown;
   outputMask?: unknown;
-  htlcOutputCommitmentHex?: unknown;
+  ownCommitment?: unknown;
   conditions?: unknown;
 }
 
@@ -94,16 +98,23 @@ export async function pay(
     ({ requestId, result } = await createAndSubmit<X402PayResult>(
       tari,
       { kind: "x402Pay", ...quote },
-      opts
+      {
+        ...opts,
+        // Persist the bare {requestId, quote} immediately after create — BEFORE the
+        // first poll — so a reload while the approval popup is still open resumes
+        // the real in-flight request instead of creating a duplicate.
+        onCreated: (id) => persist({ requestId: id, quote }),
+      }
     ));
   }
 
-  const txHash = requireString(result, "txHash");
+  const txHash = requireString(result, "transactionId");
   const outputMask = requireString(result, "outputMask");
-  const htlcOutputCommitmentHex = requireString(result, "htlcOutputCommitmentHex");
+  const htlcOutputCommitmentHex = requireString(result, "ownCommitment");
   const conditions = requireConditions(result);
 
   const record: X402PaymentRecord = {
+    ...(stored ?? {}),
     requestId,
     txHash,
     outputMask,
@@ -137,11 +148,13 @@ async function resume(
           })) as X402PayResult,
         };
       case "submitted":
+      case "signed-unbroadcast":
         return { requestId, result: record.result as X402PayResult };
       case "rejected":
       case "failed":
         throw new X402WalletError(record.error ?? `Transaction ${record.status}.`, requestId);
       case "pending":
+      case "submitting":
         await new Promise<void>((resolve) => setTimeout(resolve, interval));
         break;
       default:
