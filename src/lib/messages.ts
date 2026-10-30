@@ -133,6 +133,38 @@ export type TransactionRequestOperation =
       feeType?: "private" | "transparent";
       enforceFeeType?: boolean;
     }
+  // The x402 payment-terms envelope: what an x402 facilitator (indexer) quotes for one HTTP
+  // resource and this wallet pays for, end to end. Approving one executes as an `htlcFund` -- the
+  // same HTLC-locked stealth output, built by the same internal path in background/index.ts (a thin
+  // mapping of these fields onto `htlcFund`'s, no duplicated builder logic): the claimant reveals
+  // the SHA-256 preimage of `hashLockHex` to take payment before `refundEpoch`, and this account
+  // refunds after. The extra fields beyond `htlcFund`'s are what makes this a *purchase* rather
+  // than a bare swap leg: `resourceUrl` is WHAT the user is buying, and the approval popup is the
+  // only place they ever see it -- so every field here must render human-readably there (the
+  // popup case for this kind is expected alongside the others; see background/index.ts's
+  // `summarizeOperationForApproval`). Amounts are raw integer base-unit strings, as everywhere
+  // else in this union; `expiresAt` is when the facilitator's quote lapses, in ms since epoch.
+  | {
+      kind: "x402Pay";
+      resourceUrl: string;
+      /** Optional integrity pin for the served response, lowercase-or-mixed 64-hex SHA-256. */
+      resourceSha256?: string;
+      amount: string;
+      resourceAddress: string;
+      /** The merchant's wallet address -- becomes the HTLC output's claimant. */
+      claimantAddress: string;
+      /** SHA-256 of the claim secret, exactly 64 lowercase hex characters. */
+      hashLockHex: string;
+      /** HTLC refund leaf epoch (a chain epoch; see background/index.ts's x402 validation gate). */
+      refundEpoch: number;
+      /** The indexer's settle endpoint, where the wallet reports the payment. */
+      facilitatorUrl: string;
+      /** Optional pin of the indexer's identity public key (the envelope carries it). */
+      facilitatorPubKeyHex?: string;
+      /** Quote expiry, ms since epoch. */
+      expiresAt: number;
+      maxFee?: string;
+    }
   // ---- Private spends ----------------------------------------------------------------------
   // The four operations that move value in or out of, or between, stealth (confidential) outputs.
   // Each maps 1:1 onto the `OotleAccount` method of the same name, and each is deliberately a

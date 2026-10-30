@@ -824,6 +824,19 @@ function summarizeOperationForApproval(
           "Refundable back to this account after that epoch.",
         ],
       };
+    // A payment, not a bare swap leg: `resourceUrl` is the one field that says WHAT the user is
+    // buying, so it leads. The rest mirrors the `htlcFund` steps this executes as. Task 1.3 renders
+    // the full envelope (integrity/identity pins, quote expiry) human-readably in the popup; the
+    // popup case for this kind is expected alongside the others there.
+    case "x402Pay":
+      return {
+        instructions: [],
+        steps: [
+          `Buys ${operation.resourceUrl} for ${fmt(operation.amount)}.`,
+          `Paid to ${shortId(operation.claimantAddress)} via an HTLC, claimable with the matching secret before epoch ${operation.refundEpoch}.`,
+          "Refundable back to this account after that epoch.",
+        ],
+      };
     // Every private-spend kind shows an empty instruction list on purpose: the wallet builds the
     // StealthTransfer itself at submit time (a dApp cannot hand one over -- see
     // assertNoStealthTransferInstruction), so there are no dApp-authored instructions to display.
@@ -925,6 +938,8 @@ function operationHistoryLabel(origin: string, operation: TransactionRequestOper
     }
     case "htlcFund":
       return `${origin}: HTLC fund -> ${operation.claimantWalletAddress}`;
+    case "x402Pay":
+      return `${origin}: x402 payment -> ${operation.claimantAddress}`;
     case "shield":
       return `${origin}: shield`;
     case "depositConfidential":
@@ -996,13 +1011,14 @@ async function createTransactionRequest(
   // write (background/approvals.ts) always finds this record -- there is no window where the user
   // could click before it exists.
   await addTransactionRequest(record);
-  // Absent for `redeemStealthOutputWithPrivateFee`, which has no `feeType` field (already always
-  // private). Otherwise seeded from the dApp's own `feeType` hint if it gave one, else this
-  // wallet's own default -- `enforced` locks the popup's toggle instead of letting the user change
-  // it (background/index.ts's `tari_createTransactionRequest` handler already required `feeType`
-  // be set whenever `enforceFeeType` is).
+  // Absent for `redeemStealthOutputWithPrivateFee` (no `feeType` field -- already always private)
+  // and for `x402Pay` (a payment-terms envelope, not a dApp-authored spend -- the fee is this
+  // wallet's own transparent default). Otherwise seeded from the dApp's own `feeType` hint if it
+  // gave one, else this wallet's own default -- `enforced` locks the popup's toggle instead of
+  // letting the user change it (background/index.ts's `tari_createTransactionRequest` handler
+  // already required `feeType` be set whenever `enforceFeeType` is).
   const feeChoice =
-    operation.kind === "redeemStealthOutputWithPrivateFee"
+    operation.kind === "redeemStealthOutputWithPrivateFee" || operation.kind === "x402Pay"
       ? undefined
       : {
           enforced: operation.enforceFeeType === true,
@@ -1115,7 +1131,10 @@ async function submitApprovedTransactionRequest(requestId: string): Promise<unkn
   const operation = record.operation;
   const maxFee = operation.maxFee !== undefined ? BigInt(operation.maxFee) : undefined;
 
-  const feeType = operation.kind === "redeemStealthOutputWithPrivateFee" ? undefined : operation.feeType;
+  // `redeemStealthOutputWithPrivateFee` and `x402Pay` carry no `feeType` field (the former is
+  // always private; the latter is a payment-terms envelope whose fee is this wallet's own
+  // transparent default) -- every other kind resolves whatever `feeType` approval settled on.
+  const feeType = operation.kind === "redeemStealthOutputWithPrivateFee" || operation.kind === "x402Pay" ? undefined : operation.feeType;
 
   const doExecute = async (): Promise<unknown> => {
     // These kinds exist to spend one bounded amount (the revealed bucket); their follow-up
@@ -1179,14 +1198,22 @@ async function submitApprovedTransactionRequest(requestId: string): Promise<unkn
           BigInt(operation.maxFee),
           operation.relatedComponents ?? []
         );
+      // `x402Pay` is the same HTLC fund underneath (see its doc comment in messages.ts): the
+      // envelope's `claimantAddress`/`refundEpoch` map straight onto `htlcFund`'s fields, sharing
+      // this one builder path -- no duplicated HTLC logic. It falls through into the `htlcFund`
+      // case body via the shared `claimant`/`refundEpoch` locals below.
+      case "x402Pay":
       case "htlcFund": {
         // See tari_withdrawStealthAndExecute's own comment: only a seed-derived local account can
         // build the PayTo::Conditions output witness this needs.
         const local = requireLocalAccount(account, "Funding an HTLC");
+        // `x402Pay` carries `refundEpoch` as a number, `htlcFund` as a string -- `BigInt` takes
+        // both, so the shared call site below needs no conversion either way.
+        const claimant = operation.kind === "x402Pay" ? operation.claimantAddress : operation.claimantWalletAddress;
         return local.htlcFund(
           operation.resourceAddress,
           BigInt(operation.amount),
-          operation.claimantWalletAddress,
+          claimant,
           operation.hashLockHex,
           BigInt(operation.refundEpoch),
           maxFee,
