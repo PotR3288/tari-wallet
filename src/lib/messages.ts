@@ -768,6 +768,13 @@ export interface WalletCapabilities {
    * transaction-request kinds, the other half of `htlcFund`. Same account requirement as the rest
    * of the stealth surface: a seed-derived local account only. */
   scriptPathSpend: boolean;
+  /** The `x402SignClaim` transaction-request kind -- build, sign and seal the HTLC claim for an
+   * x402 purchase WITHOUT broadcasting it; the sealed payload is handed back for the settlement
+   * facilitator to submit at settle. Same account requirement as the rest of the stealth surface:
+   * a seed-derived local account only (the claim needs its view secret to decrypt the funded
+   * output). The build path exists in code; live-testnet verification (Phase 5 e2e) is still
+   * ahead -- see background/capabilities.ts's own note. */
+  signOnly: boolean;
   /** The `unshield`/`sendPrivately` transaction-request kinds -- spending an *existing* stealth
    * output. A daemon-relayed account can do this too (via `accounts.create_stealth_transfer_statement`,
    * confirmed against a live daemon), unlike the rest of the stealth-spend surface

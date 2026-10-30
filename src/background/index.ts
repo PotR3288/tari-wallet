@@ -43,6 +43,7 @@ import { classifyProviderError } from "../lib/messages";
 // is unit-testable without a service worker.
 import { validateHtlcFundTerms, validateX402PayTerms, validateX402SignClaimTerms } from "./x402";
 import { buildSignedX402Claim } from "./x402SignOnly";
+import { walletCapabilities } from "./capabilities";
 import type {
   AccountSummary,
   AccountsChangedBroadcast,
@@ -58,7 +59,6 @@ import type {
   ShieldedOutputSummary,
   TransactionRequestOperation,
   TransactionRequestSummary,
-  WalletCapabilities,
   WalletStatus,
 } from "../lib/messages";
 import type { Instruction, SubstateRequirement } from "@tari-project/ootle-ts-bindings";
@@ -516,36 +516,18 @@ async function handlePageRequest(message: PageRequestMessage, sender: chrome.run
       if (!site) throw new Error("Site is not connected. Call tari_requestAccounts first.");
       const account = await getAccountById(site.accountId);
       if (!account) throw new Error("Wallet is locked.");
-      // Some stealth-touching features need this account's own view secret and one-time stealth
+      // The flag table itself lives in background/capabilities.ts (a pure function, same pattern
+      // as summary.ts/x402.ts) so it is unit-testable without a service worker. Some
+      // stealth-touching features need this account's own view secret and one-time stealth
       // signing, which only a seed-derived local account has (see WalletDaemonSigner's doc
-      // comment) -- those stay `isLocal`-only below. Others (shield/unshield/sendPrivately/balance
+      // comment) -- those stay local-only there. Others (shield/unshield/sendPrivately/balance
       // reads) the daemon can do entirely server-side instead, so they're `isLocal || isDaemon` --
       // see each field's own doc comment in messages.ts for which is which.
-      const isLocal = account instanceof OotleAccount;
-      const isDaemon = account instanceof DaemonAccount;
-      const capabilities: WalletCapabilities = {
-        exactInputSelection: true,
-        stealthWithdraw: isLocal,
-        stealthRedeem: isLocal,
-        stealthRedeemPrivateFee: isLocal,
-        htlcFund: isLocal,
-        scriptPathSpend: isLocal,
-        privateSpend: isLocal || isDaemon,
-        shieldFunds: isLocal || isDaemon,
-        privateBalanceView: isLocal || isDaemon,
-        privateScan: isLocal,
-        privateViewGranted: site.viewAccessGrantedAt !== undefined,
-        transactionResultLookup: true,
-        transactionRequests: true,
-        walletAddress: true,
-        minimumValuePromise: isLocal,
-        ownershipProof: isLocal,
-        walletOwnershipProof: isLocal,
-        confidentialDeposit: isLocal,
-        supportsPrivateFees: isLocal,
-        dryRunIsLocal: false,
-      };
-      return capabilities;
+      return walletCapabilities(
+        account instanceof OotleAccount,
+        account instanceof DaemonAccount,
+        site.viewAccessGrantedAt !== undefined
+      );
     }
 
     case "tari_getTransactionResult": {

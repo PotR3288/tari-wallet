@@ -46,7 +46,8 @@ interface WalletCapabilities {
   stealthRedeem: boolean;            // redeemStealthOutputAndExecute -- local accounts only
   stealthRedeemPrivateFee: boolean;  // redeemStealthOutputWithPrivateFee -- local accounts only
   htlcFund: boolean;                 // htlcFund -- local accounts only
-  scriptPathSpend: boolean;          // htlcClaim / htlcRefund -- local accounts only
+  scriptPathSpend: boolean;           // htlcClaim / htlcRefund -- local accounts only
+  signOnly: boolean;                  // x402SignClaim (sign + seal, never broadcast; the settlement facilitator submits) -- local accounts only
   privateSpend: boolean;             // unshield / sendPrivately -- local AND daemon-relayed accounts
   shieldFunds: boolean;              // shield -- local AND daemon-relayed accounts
   privateBalanceView: boolean;       // tari_getPrivateBalances / tari_getShieldedOutputs -- both account kinds
@@ -216,11 +217,11 @@ type TransactionRequestOperation =
 
 interface TransactionRequestSummary {
   requestId: string;
-  status: "pending" | "approved" | "submitting" | "submitted" | "rejected" | "failed";
+  status: "pending" | "approved" | "submitting" | "submitted" | "signed-unbroadcast" | "rejected" | "failed";
   note: string;       // human-readable summary, the same text shown on the popup
   createdAt: number;
   expiresAt: number;
-  result?: unknown;   // set once status === "submitted"
+  result?: unknown;   // set once status === "submitted" | "signed-unbroadcast"
   error?: string;     // set once status === "rejected" | "failed"
 }
 ```
