@@ -162,6 +162,7 @@ const en = {
     title: "History",
     empty: "No transactions yet.",
     failedSuffix: " (failed)",
+    signedUnbroadcastSuffix: " (signed, not broadcast)",
     kindSend: "Sent",
     kindShield: "Shielded",
     kindUnshield: "Unshielded",

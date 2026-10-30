@@ -1420,7 +1420,16 @@ async function renderHistory(status: WalletStatus) {
             return h("div", { class: `balance-row${entry.status === "failed" ? " status-failed" : ""}` }, [
               h("div", { class: "history-icon", "aria-hidden": "true" }, [icon(HISTORY_KIND_ICON[entry.kind])]),
               h("div", { class: "list-row-info" }, [
-                h("div", {}, [historyKindLabel(entry.kind), entry.status === "failed" ? t("history.failedSuffix") : ""]),
+                h("div", {}, [
+                  historyKindLabel(entry.kind),
+                  entry.status === "failed"
+                    ? t("history.failedSuffix")
+                    : // The sign-only claim sealed a payload without touching the chain -- never
+                      // let history read as a completed spend.
+                      entry.status === "signed-unbroadcast"
+                      ? t("history.signedUnbroadcastSuffix")
+                      : "",
+                ]),
                 h("div", { class: "muted" }, [amountText ? `${amountText} · ${when}` : when]),
                 counterpartyText ? h("div", { class: "list-row-subtitle", title: entry.counterparty ?? "" }, [counterpartyText]) : "",
                 entry.memo ? h("div", { class: "list-row-subtitle" }, [`"${entry.memo}"`]) : "",

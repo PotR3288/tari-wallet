@@ -683,6 +683,14 @@ async function handlePageRequest(message: PageRequestMessage, sender: chrome.run
       if (record.accountId !== site.accountId) {
         throw new Error("This transaction request belongs to a different account — switch back to that account or create a new request.");
       }
+      // A completed sign-only request is done, not pending: its sealed claim was returned to the
+      // dApp at submit time, and the settlement facilitator -- not this wallet -- broadcasts it at
+      // settle. "Submitting" it again could only ever build and hand over a second sealed claim.
+      if (record.status === "signed-unbroadcast") {
+        throw new Error(
+          "This request was already signed and the sealed claim handed back to your app — the settlement facilitator broadcasts it at settle, not the wallet. Poll tari_getTransactionRequest for the stored payload."
+        );
+      }
       return submitApprovedTransactionRequest(p.requestId);
     }
 
@@ -1168,8 +1176,8 @@ async function submitApprovedTransactionRequest(requestId: string): Promise<unkn
       // no dry run: the preimage must not reach the indexer (or anything else) before the
       // facilitator broadcasts at settle. `buildSignedX402Claim` is the entire path
       // (background/x402SignOnly.ts); its result is the payload the dApp POSTs to the
-      // facilitator, and the request record below marks it "submitted" only in the sense that
-      // the *wallet's* part is done -- the payload itself is the caller's to deliver.
+      // facilitator, and the request record below settles to "signed-unbroadcast" -- the
+      // *wallet's* part is done, the payload itself is the caller's to deliver.
       case "x402SignClaim":
         return buildSignedX402Claim(requireLocalAccount(account, "Signing an HTLC claim"), operation);
       case "htlcRefund": {
@@ -1188,9 +1196,20 @@ async function submitApprovedTransactionRequest(requestId: string): Promise<unkn
   };
 
   const counterparty = operationHistoryLabel(record.origin, operation);
+  // A completed sign-only claim is "signed-unbroadcast", not "submitted": nothing was broadcast,
+  // and the sealed payload in `result` is the dApp's to deliver to the facilitator. Every other
+  // kind really did execute on-chain and stays "submitted".
+  const completionStatus = operation.kind === "x402SignClaim" ? "signed-unbroadcast" : "submitted";
   try {
-    const result = await withHistory({ accountId: record.accountId, kind: "dapp-transaction", counterparty }, doExecute);
-    await setTransactionRequestStatus(record.id, { status: "submitted", result: sanitizeForMessage(result) });
+    const result = await withHistory(
+      { accountId: record.accountId, kind: "dapp-transaction", counterparty },
+      doExecute,
+      undefined,
+      // The sign-only claim's history entry must never read as a completed on-chain spend
+      // ("confirmed") -- its own status says exactly what happened and the popup renders that.
+      operation.kind === "x402SignClaim" ? { successStatus: "signed-unbroadcast" } : undefined
+    );
+    await setTransactionRequestStatus(record.id, { status: completionStatus, result: sanitizeForMessage(result) });
     return result;
   } catch (e) {
     await setTransactionRequestStatus(record.id, { status: "failed", error: String(e instanceof Error ? e.message : e) });
@@ -1220,7 +1239,9 @@ async function waitForApprovalDecision(requestId: string, approved: Promise<bool
       if (stopped) break;
       const record = await getTransactionRequest(requestId);
       if (!record || record.status === "rejected" || record.status === "failed") return false;
-      if (record.status === "approved" || record.status === "submitting" || record.status === "submitted") return true;
+      // "signed-unbroadcast" counts as decided-true too: it is a completed request, and this poll
+      // exists solely to recover a click whose in-memory resolver died with the worker.
+      if (record.status === "approved" || record.status === "submitting" || record.status === "submitted" || record.status === "signed-unbroadcast") return true;
     }
     return false;
   })();
@@ -1364,11 +1385,12 @@ async function buildStatus(): Promise<WalletStatus> {
 
 /**
  * Wraps a transaction-submitting call with client-side history recording (see
- * TransactionHistoryEntry's doc comment for scope) — records "confirmed" if `action` resolves,
- * "failed" if it rejects, then re-throws so the caller's own error handling is unaffected either
- * way. A recording hiccup itself is swallowed (best-effort only), the same "don't let a recording
- * hiccup break the real flow" policy buildStatus() already applies to recoverPendingShields()/
- * scanForPrivatePayments().
+ * TransactionHistoryEntry's doc comment for scope) — records "confirmed" (or `options`'s
+ * `successStatus`, e.g. "signed-unbroadcast" for the sign-only x402SignClaim kind, whose result
+ * never touched the chain) if `action` resolves, "failed" if it rejects, then re-throws so the
+ * caller's own error handling is unaffected either way. A recording hiccup itself is swallowed
+ * (best-effort only), the same "don't let a recording hiccup break the real flow" policy
+ * buildStatus() already applies to recoverPendingShields()/scanForPrivatePayments().
  */
 /**
  * Looks up `resourceAddress`'s current `divisibility`/`symbol` from the active account's balances,
@@ -1454,9 +1476,13 @@ async function withHistory<T>(
   base: Omit<TransactionHistoryEntry, "id" | "createdAt" | "status">,
   action: () => Promise<T>,
   // Fields only knowable from the action's resolved result (e.g. claimPrivatePayment()'s
-  // decrypted memo) -- merged into the "confirmed" record only, since there's no result to derive
+  // decrypted memo) -- merged into the success record only, since there's no result to derive
   // them from on failure.
-  deriveOnSuccess?: (result: T) => Partial<Omit<TransactionHistoryEntry, "id" | "createdAt" | "status">>
+  deriveOnSuccess?: (result: T) => Partial<Omit<TransactionHistoryEntry, "id" | "createdAt" | "status">>,
+  // "confirmed" unless the caller says otherwise -- the one override so far is the sign-only
+  // x402SignClaim kind, whose "success" sealed a payload without touching the chain and whose
+  // history entry must say exactly that.
+  options?: { successStatus?: TransactionHistoryEntry["status"] }
 ): Promise<T> {
   const record = async (status: TransactionHistoryEntry["status"], extra?: Partial<TransactionHistoryEntry>) => {
     try {
@@ -1471,7 +1497,7 @@ async function withHistory<T>(
     const result = await action();
     const derived = deriveOnSuccess?.(result);
     const transactionId = derived?.transactionId ?? transactionIdOf(result);
-    await record("confirmed", { ...derived, ...(transactionId ? { transactionId } : {}) });
+    await record(options?.successStatus ?? "confirmed", { ...derived, ...(transactionId ? { transactionId } : {}) });
     return result;
   } catch (e) {
     await record("failed");

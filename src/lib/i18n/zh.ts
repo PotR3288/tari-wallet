@@ -156,6 +156,7 @@ const zh: { [K in keyof TranslationTree]: { [L in keyof TranslationTree[K]]: str
     title: "历史记录",
     empty: "暂无交易记录。",
     failedSuffix: "（失败）",
+    signedUnbroadcastSuffix: "（已签名，未广播）",
     kindSend: "已发送",
     kindShield: "已屏蔽",
     kindUnshield: "已取消屏蔽",

@@ -167,7 +167,10 @@ const provider: TariProvider = {
                 request("tari_submitTransactionRequest", { requestId }).then(resolve, reject);
                 return;
               }
-              if (summary.status === "submitted") {
+              // "signed-unbroadcast" is a completed sign-only x402SignClaim: the wallet's part is
+              // done and the stored result is the sealed payload to hand to the facilitator --
+              // resolve exactly like "submitted" would.
+              if (summary.status === "submitted" || summary.status === "signed-unbroadcast") {
                 resolve(summary.result);
                 return;
               }

@@ -112,10 +112,13 @@ export interface TransactionHistoryEntry {
   transactionId?: string;
   /** 0 for a receipt found on chain with no way to tell when it arrived (shown as "earlier"). */
   createdAt: number;
-  status: "confirmed" | "failed";
   /** The plaintext memo attached to a shield/unshield/send-privately/private-payment-received
    * entry, if any -- see `ShieldedOutputRecord.memo`. */
   memo?: string;
+  /** "confirmed" for an action that really completed on-chain; "signed-unbroadcast" for a
+   * completed sign-only `x402SignClaim` (the wallet sealed and handed over a payload -- nothing
+   * moved on-chain, so history must never render it as a completed spend); "failed" otherwise. */
+  status: "confirmed" | "failed" | "signed-unbroadcast";
   /** `resourceAddress`'s `divisibility`/`symbol` at the time this entry was recorded (see
    * `TokenBalance`) -- persisted rather than re-derived from the account's *current* balances,
    * which may no longer hold this resource at all (a fully-spent/dust-swept vault drops out of
@@ -156,7 +159,11 @@ export interface TransactionRequestRecord {
   /** Human-readable summary shown on the popup approval screen and returned to the dApp --
    * computed once at creation from `operation` (see background/index.ts). */
   note: string;
-  status: "pending" | "approved" | "submitting" | "submitted" | "rejected" | "failed";
+  /** "signed-unbroadcast" is the terminal state of a completed `x402SignClaim`: the wallet
+   * signed and sealed the claim and handed the payload back -- nothing was broadcast, and the
+   * settlement facilitator (not this wallet) submits it at settle. It behaves like "submitted"
+   * everywhere except that re-submitting is refused (see `tari_submitTransactionRequest`). */
+  status: "pending" | "approved" | "submitting" | "submitted" | "signed-unbroadcast" | "rejected" | "failed";
   createdAt: number;
   /** A stale "pending"/"approved" request reads back as expired (checked lazily on read, never
    * written -- mirrors walletd's own "Expired = derived on read" design) rather than being
@@ -169,7 +176,8 @@ export interface TransactionRequestRecord {
    * outcome via its own re-derivation of the operation or `tari_getTransactionResult` once it
    * knows the id). */
   /** Set once the operation has actually executed -- the sanitized (BigInt-free) result, present
-   * only when `status` is "submitted". */
+   * only when `status` is "submitted" (or "signed-unbroadcast", whose result is the sealed claim
+   * payload the dApp delivers to the settlement facilitator). */
   result?: unknown;
   /** Set once `status` is "failed". */
   error?: string;
@@ -454,8 +462,8 @@ export async function addTransactionRequest(record: TransactionRequestRecord): P
 
 /** Reports a lazily-computed "expired" status (never written back) for a stale pending/approved
  * request, mirroring walletd's own "Expired = derived on read" design -- see
- * TransactionRequestRecord's doc comment. "submitting"/"submitted"/"rejected"/"failed" are past
- * the expiry gate and always report as-is. */
+ * TransactionRequestRecord's doc comment. "submitting"/"submitted"/"signed-unbroadcast"/
+ * "rejected"/"failed" are past the expiry gate and always report as-is. */
 export async function getTransactionRequest(id: string): Promise<TransactionRequestRecord | undefined> {
   const { transactionRequests } = await getState();
   const record = transactionRequests.find((r) => r.id === id);
@@ -466,14 +474,16 @@ export async function getTransactionRequest(id: string): Promise<TransactionRequ
   return record;
 }
 
-/** Transitions a request to "submitted"/"failed" once its operation has actually executed.
- * The approved/rejected decision write lives in recordTransactionRequestDecision instead -- it is
- * the only transition allowed to move a request out of "pending", and it must be guarded against
- * clobbering later states (a click racing a submit must never resurrect "approved" over
- * "submitting", which would let a second concurrent claim through). */
+/** Transitions a request to "submitted"/"signed-unbroadcast"/"failed" once its operation has
+ * actually executed ("signed-unbroadcast" for a completed `x402SignClaim`, whose sealed payload
+ * -- never broadcast by this wallet -- is the `result`). The approved/rejected decision write
+ * lives in recordTransactionRequestDecision instead -- it is the only transition allowed to move
+ * a request out of "pending", and it must be guarded against clobbering later states (a click
+ * racing a submit must never resurrect "approved" over "submitting", which would let a second
+ * concurrent claim through). */
 export async function setTransactionRequestStatus(
   id: string,
-  update: { status: "submitted"; result: unknown } | { status: "failed"; error: string }
+  update: { status: "submitted" | "signed-unbroadcast"; result: unknown } | { status: "failed"; error: string }
 ): Promise<boolean> {
   return serialized(async () => {
     const state = await getState();

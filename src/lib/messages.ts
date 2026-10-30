@@ -383,13 +383,19 @@ export type TransactionRequestOperation =
  * `operation` the dApp already has its own copy of) stripped. */
 export interface TransactionRequestSummary {
   requestId: string;
-  status: "pending" | "approved" | "submitting" | "submitted" | "rejected" | "failed";
+  /** "signed-unbroadcast" is the terminal state of a completed sign-only `x402SignClaim`: the
+   * wallet signed and sealed the claim and handed the payload back -- nothing was broadcast, and
+   * the settlement facilitator submits it at settle. Idempotent to re-poll (the stored `result`
+   * is the sealed payload) and never re-submittable -- `tari_submitTransactionRequest` throws
+   * with an explanation instead. */
+  status: "pending" | "approved" | "submitting" | "submitted" | "signed-unbroadcast" | "rejected" | "failed";
   /** Human-readable summary of what this request does, the same text shown on the popup approval
    * screen -- useful for a dApp's own UI while waiting on approval. */
   note: string;
   createdAt: number;
   expiresAt: number;
-  /** Set once `status` is "submitted". */
+  /** Set once `status` is "submitted" (or "signed-unbroadcast", whose result is the sealed claim
+   * payload the dApp delivers to the settlement facilitator). */
   result?: unknown;
   /** Set once `status` is "rejected"/"failed". */
   error?: string;
@@ -472,9 +478,11 @@ export interface ProviderRequestParams {
    * reload/service-worker restart -- the record is persisted, not held only in memory. */
   tari_getTransactionRequest: { requestId: string };
   /** Executes an `"approved"` transaction request and returns its result -- throws if the request
-   * isn't approved yet (still `"pending"`), was rejected, already submitted, or has expired.
-   * Submission is claimed atomically at submit time, so racing/duplicate submits over one request
-   * are safe: exactly one executes, the rest throw. */
+   * isn't approved yet (still `pending`), was rejected, already submitted, or has expired. A
+   * `signed-unbroadcast` request (a completed sign-only `x402SignClaim`) also throws: its sealed
+   * payload was already handed back, and the settlement facilitator -- not this wallet --
+   * broadcasts it at settle. Submission is claimed atomically at submit time, so
+   * racing/duplicate submits over one request are safe: exactly one executes, the rest throw. */
   tari_submitTransactionRequest: { requestId: string };
 
   // ---- Private view access -------------------------------------------------------------------
@@ -963,7 +971,10 @@ export interface TransactionHistoryEntry {
   counterparty?: string;
   transactionId?: string;
   createdAt: number;
-  status: "confirmed" | "failed";
+  /** "confirmed" for an action that really completed on-chain; "signed-unbroadcast" for a
+   * completed sign-only `x402SignClaim` (nothing moved on-chain -- history must never render it
+   * as a completed spend); "failed" otherwise. */
+  status: "confirmed" | "failed" | "signed-unbroadcast";
   memo?: string;
   divisibility?: number;
   symbol?: string | null;
