@@ -74,9 +74,13 @@ const signedClaim = await signClaim({
 ```
 
 Errors are one distinct class per rejection cause (`X402PaymentRequired`,
-`X402QuoteParseError`, `X402WalletError`, `X402NoWalletError`,
-`X402IncompleteResultError`, `X402SettlementExpired`, `X402MissingOutputMaskError`)
-— never a shared "invalid request" bucket.
+`X402QuoteParseError`, `X402UnsupportedVersionError`, `X402WalletError`,
+`X402NoWalletError`, `X402IncompleteResultError`, `X402SettlementExpired`,
+`X402MissingOutputMaskError`) — never a shared "invalid request" bucket.
+`X402UnsupportedVersionError` is thrown when a server answers with a foundation x402 v2
+`PaymentRequired` (base64-encoded, `accepts[]`): the Ootle dialect is deliberately not
+v2-wire-compatible, and no Ootle scheme can appear in a v2 server's `accepts[]` yet, so
+the error says so instead of misreporting the header as malformed.
 
 ## Spec
 
