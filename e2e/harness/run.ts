@@ -826,18 +826,30 @@ async function scenarioRefund(seedIndex: number, payerInfo: SeedInfo, merchantIn
     const merchantSeed = await deriveMnemonic("merchant", seedIndex);
     const payer = await launchWallet(`payer-refund`, payerSeed.mnemonic);
     const merchant = await launchWallet(`merchant-refund`, merchantSeed.mnemonic);
+    // The refund wallets are fresh (per-run seeds), so neither the on-chain faucet (dry) nor the
+    // view-key scan can fund the refund payer. The happy scenario's payer (seedIndex-1) is a known
+    // funded deterministic wallet: launch it as a sponsor and relay through it -- sponsor sends
+    // privately to the refund payer (commitment claimed out of band), then the refund payer relays
+    // to the refund merchant like any other target.
+    const sponsorSeed = await deriveMnemonic("payer", seedIndex - 1);
+    const sponsor = await launchWallet(`sponsor-refund`, sponsorSeed.mnemonic);
     try {
       const payerPage = await connectDapp(payer);
       const merchantPage = await connectDapp(merchant);
-      await fundWallet(payer, payerInfo.walletAddress, payerPage);
+      const sponsorPage = await connectDapp(sponsor);
+      await fundWallet(payer, payerInfo.walletAddress, payerPage, { payer: sponsor, payerPage: sponsorPage });
       await fundWallet(merchant, merchantInfo.walletAddress, merchantPage, { payer, payerPage });
       const purchase = await runPurchaseLeg(payer, merchant, payerPage, merchantPage, merchantInfo.viewSecretHex);
       assert(purchase.claimResp.frozen === true, "facilitator FROZEN: claim held, broadcast never confirmed");
 
       // Wait for the chain's own epoch to pass refundEpoch (poll, no fixed sleeps).
+      // Margin of +1: the wallet's dry-run epoch source can lag the indexer probe across the
+      // boundary (runT: probe said 12754, wallet dry-run executed at 12753 -> AfterEpoch rejected),
+      // and AfterEpoch(N) may only be satisfied strictly after N depending on the builtin.
       const p = await getProvider();
       const refundEpoch = purchase.quote.refundEpoch;
-      log(`waiting for chain epoch >= ${refundEpoch} (budget ${EPOCH_WAIT_MINUTES} min)`);
+      const refundEpochSafe = refundEpoch + 1;
+      log(`waiting for chain epoch >= ${refundEpochSafe} (budget ${EPOCH_WAIT_MINUTES} min)`);
       let firstObserved = await p.getCurrentEpoch();
       const waitStart = Date.now();
       await pollUntil(
@@ -848,7 +860,7 @@ async function scenarioRefund(seedIndex: number, payerInfo: SeedInfo, merchantIn
             log(`chain epoch: ${epoch}`);
             firstObserved = epoch;
           }
-          return epoch >= refundEpoch ? epoch : null;
+          return epoch >= refundEpochSafe ? epoch : null;
         },
         EPOCH_WAIT_MINUTES * 60_000,
         20_000
@@ -869,19 +881,35 @@ async function scenarioRefund(seedIndex: number, payerInfo: SeedInfo, merchantIn
       assert(expired.status === "expired", `settlement reports EXPIRED (never broadcast; chainTxId absent: ${expired.chainTxId ?? "none"})`);
 
       // The funder's refund, through the outputMask path -- REAL popup approval click.
-      const refund = await requestWithApproval(
-        payer,
-        payerPage,
-        {
-          kind: "htlcRefund",
-          resourceAddress: purchase.quote.resourceAddress,
-          commitment: purchase.fund.ownCommitment,
-          conditions: purchase.fund.conditions,
-          amount: purchase.quote.amount,
-          outputMask: purchase.fund.outputMask,
-        },
-        "htlcRefund (funder recovery)"
-      );
+      // Retry on epoch-predicate rejections: the wallet's dry-run epoch source can still lag
+      // the harness probe across the boundary (runT died once on AfterEpoch(12754) at 12753).
+      let refund: Awaited<ReturnType<typeof requestWithApproval>> | null = null;
+      for (let attempt = 1; ; attempt++) {
+        try {
+          refund = await requestWithApproval(
+            payer,
+            payerPage,
+            {
+              kind: "htlcRefund",
+              resourceAddress: purchase.quote.resourceAddress,
+              commitment: purchase.fund.ownCommitment,
+              conditions: purchase.fund.conditions,
+              amount: purchase.quote.amount,
+              outputMask: purchase.fund.outputMask,
+            },
+            "htlcRefund (funder recovery)"
+          );
+          break;
+        } catch (err) {
+          const msg = String((err as any)?.message ?? err);
+          if (attempt < 10 && /AfterEpoch\(\d+\)|Spend condition not met/.test(msg)) {
+            log(`refund attempt ${attempt}: epoch predicate not satisfied yet -- retrying in 60s`);
+            await new Promise((r) => setTimeout(r, 60_000));
+            continue;
+          }
+          throw err;
+        }
+      }
       const refundTxId = refund.transactionId;
       assert(typeof refundTxId === "string" && refundTxId.length > 0, `refund tx submitted to esmeralda (${refundTxId})`);
       log(`refund result: ${JSON.stringify(refund).slice(0, 300)}`);
@@ -906,6 +934,7 @@ async function scenarioRefund(seedIndex: number, payerInfo: SeedInfo, merchantIn
     } finally {
       await payer.ctx.close().catch(() => {});
       await merchant.ctx.close().catch(() => {});
+      await sponsor.ctx.close().catch(() => {});
     }
   } finally {
     facilitator.kill("SIGTERM");
