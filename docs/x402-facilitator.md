@@ -222,6 +222,50 @@ transaction, preimage included, to the indexer before settle — and the preimag
 merchant's proof of payment. An indexer implementation that adds a "validate early"
 endpoint accepting the preimage before settle violates this spec.
 
+## Trust and honesty semantics
+
+What each party in this flow can and cannot do to the other — the honest statement the
+capability surface (`signOnly` in `tari_getCapabilities`) points at. Live-verified on
+esmeralda (Phase 5 e2e: happy-path settle and frozen-facilitator refund both PASS).
+
+**The HTLC is the client's backstop, not a delivery proof.** While the claim payload is
+held (never broadcast), the client's refund path is fully intact — nothing has touched
+the chain, so `htlcRefund` after `refundEpoch` returns the funds unconditionally. This
+is live-verified end to end: a facilitator frozen with `FREEZE_BROADCAST=1` (claim held
+forever, never broadcast) still let the funder recover the full HTLC amount once
+`AfterEpoch(refundEpoch)` was satisfied — the refund is enforced by the chain, not by
+anyone's cooperation. Delivery itself is NOT provable to the payment layer (see the
+ordering section): the residual "merchant signed + got it held but never served" risk is
+the same as any irreversible-payment-with-unprovable-delivery design.
+
+**The indexer's hold power — disclosed, not hidden.** Between settle and broadcast the
+indexer holds a *fully-signed* claim. What it can do with that power:
+
+- **Withhold broadcast** (or delay it past usefulness): the merchant served the resource
+  but never gets paid. This is a merchant-side trust decision — the merchant chose this
+  indexer as its facilitator and can audit its settlement history via
+  `GET /x402/settlement/{localDigest}` and the chain itself. The client is unaffected:
+  funds stay recoverable.
+- **Broadcast late** (past `refundEpoch + 1`): must not happen per the validation
+  checklist, and even a malicious indexer cannot profit from it — the on-chain
+  `BeforeEpoch(refundEpoch)` guard rejects the claim at that point regardless of the
+  indexer's signature. The spec's retention rule (`expired` is terminal, never
+  resurrected) exists to make this state reachable and stable.
+- **Redirect or spend the funds**: impossible. The claim is bound to
+  `quote.claimantAddress`, `quote.amount` and the hashlock preimage, and the indexer
+  holds no key that could re-sign any of it — it can broadcast the payload as-is or not
+  at all.
+
+**What the client never delegates:** the client's funds are only ever moved by its own
+keys (fund via `x402Pay`, recover via `htlcRefund`). The facilitator's only client-side
+power is timing — and the worst timing outcome (hold forever) is exactly the refund
+scenario.
+
+**What `signOnly: true` honestly claims:** the wallet can build, sign and seal the claim
+without broadcasting, and that path works against a live chain. It does not claim the
+merchant serves, the indexer broadcasts, or delivery happened — those are the
+facilitator spec's contract and the residual risks above.
+
 ## Scope note
 
 v1 target deployment: the ootle indexer default at `https://ootle-indexer-a.tari.com/`

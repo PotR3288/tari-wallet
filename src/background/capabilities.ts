@@ -21,10 +21,11 @@ export function walletCapabilities(isLocal: boolean, isDaemon: boolean, viewGran
     stealthRedeemPrivateFee: isLocal,
     htlcFund: isLocal,
     scriptPathSpend: isLocal,
-    // The sign-only x402 claim build path (background/x402SignOnly.ts) exists in code today, so
-    // this reports honestly for local accounts -- but it has NOT yet been verified against a live
-    // testnet round trip. Per the plan, capability flags stay honest about the code while the
-    // Phase 5 e2e verification gate is still ahead; revisit this comment once that lands.
+    // The sign-only x402 claim build path (background/x402SignOnly.ts), verified live on
+    // esmeralda (Phase 5 e2e: happy path settle + frozen-facilitator refund both PASS --
+    // claim signed/held/served, refund tx finalized Commit, HTLC output spent). What this
+    // flag does NOT claim is delivery proof or facilitator honesty -- see the trust and
+    // honesty-semantics section of docs/x402-facilitator.md.
     signOnly: isLocal,
     privateSpend: isLocal || isDaemon,
     shieldFunds: isLocal || isDaemon,

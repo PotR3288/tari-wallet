@@ -772,8 +772,10 @@ export interface WalletCapabilities {
    * x402 purchase WITHOUT broadcasting it; the sealed payload is handed back for the settlement
    * facilitator to submit at settle. Same account requirement as the rest of the stealth surface:
    * a seed-derived local account only (the claim needs its view secret to decrypt the funded
-   * output). The build path exists in code; live-testnet verification (Phase 5 e2e) is still
-   * ahead -- see background/capabilities.ts's own note. */
+   * output). Verified live on esmeralda (Phase 5 e2e: happy-path settle and frozen-facilitator
+   * refund both PASS). This flag says the build path exists and works -- it does NOT promise
+   * delivery proof or facilitator honesty; see docs/x402-facilitator.md's trust and
+   * honesty-semantics section. */
   signOnly: boolean;
   /** The `unshield`/`sendPrivately` transaction-request kinds -- spending an *existing* stealth
    * output. A daemon-relayed account can do this too (via `accounts.create_stealth_transfer_statement`,
