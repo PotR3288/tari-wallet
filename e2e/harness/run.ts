@@ -153,6 +153,9 @@ async function launchWallet(name: string, mnemonic: string): Promise<Wallet> {
   const profileDir = path.join(PROFILE_ROOT, name);
   const ctx = await chromium.launchPersistentContext(profileDir, {
     headless: HEADLESS,
+    // The default 180s launch timeout loses to a loaded box (e.g. a concurrent miner at
+    // ~30 cores); Chromium is fine under load, it just starts slowly.
+    timeout: 600_000,
     args: [`--disable-extensions-except=${DIST}`, `--load-extension=${DIST}`, "--no-first-run", "--no-default-browser-check"],
   });
   // tsx/esbuild compiles this file with keepNames, which injects a bare `__name(...)` helper
@@ -382,8 +385,119 @@ async function fundViaCommunityFaucet(wallet: Wallet, walletAddress: string, dap
   assert(final > 0n, `${wallet.name} has revealed XTR for fees (balance ${final})`);
 }
 
-/** Fund a wallet: already-funded skips everything; else the on-chain faucet, else the community faucet. */
-async function fundWallet(wallet: Wallet, walletAddress: string, dappPage: Page): Promise<void> {
+/**
+ * Discover inbound PRIVATE transfers (manual out-of-band funding, e.g. a taritracker payout
+ * requested from another browser) and unshield a slice into the revealed vault. Taritracker
+ * dispenses stealth outputs, so a wallet funded that way shows revealed XTR 0 until it scans
+ * and unshields. Unshield amounts descend (fee paid privately from the stealth UTXO itself)
+ * because the exact received amount is not directly readable through the popup surface.
+ */
+async function discoverAndUnshieldInbound(wallet: Wallet, dappPage: Page): Promise<boolean> {
+  await ensureUnlocked(wallet);
+  log(`${wallet.name}: scanning for inbound private payments (manual/taritracker funding)`);
+  for (let i = 0; i < 6; i++) {
+    try {
+      const scan = await popupSend(wallet.popup, { kind: "popup-rescan-private-payments" });
+      log(`${wallet.name}: private payment scan -> ${JSON.stringify(scan).slice(0, 120)}`);
+      break;
+    } catch (e) {
+      log(`${wallet.name}: scan attempt ${i + 1} threw: ${e instanceof Error ? e.message : e}`);
+      await new Promise((r) => setTimeout(r, 10_000));
+    }
+  }
+  // Give the scan and the inbound tx a moment to confirm; poll revealed, then unshield.
+  const scanDeadline = Date.now() + 180_000;
+  while (Date.now() < scanDeadline) {
+    const amount = await revealedXtr(wallet).catch(() => 0n);
+    if (amount > 0n) {
+      log(`${wallet.name}: discovered revealed XTR ${amount} after private scan`);
+      return true;
+    }
+    await new Promise((r) => setTimeout(r, 10_000));
+  }
+  for (const slice of ["200000000000", "200000000", "2000000"]) {
+    try {
+      log(`${wallet.name}: unshielding slice ${slice} for the transparent fee/payment lane (private fee)`);
+      await requestWithApproval(
+        wallet,
+        dappPage,
+        {
+          kind: "unshield",
+          resourceAddress: TARI_RESOURCE_ADDRESS,
+          revealedAmount: slice,
+          feeType: "private",
+          enforceFeeType: true,
+        },
+        "unshield (inbound private funding)"
+      );
+      await pollUntil(
+        "revealed XTR after inbound unshield",
+        async () => {
+          const amount = await revealedXtr(wallet).catch(() => 0n);
+          return amount > 0n ? amount : null;
+        },
+        120_000
+      );
+      log(`${wallet.name}: inbound private funding unshielded (revealed XTR ${await revealedXtr(wallet)})`);
+      return true;
+    } catch (e) {
+      log(`${wallet.name}: unshield slice ${slice} failed: ${e instanceof Error ? e.message.split("\n")[0] : e}`);
+    }
+  }
+  return (await revealedXtr(wallet).catch(() => 0n)) > 0n;
+}
+
+/**
+ * Payer -> target private relay: `sendPrivately` transfers are NOT view-key scannable (the
+ * recipientCommitment must reach the recipient out of band), so the harness is that out-of-band
+ * channel: send 20M XTR privately from the payer, take `recipientCommitment` from the result, and
+ * claim it directly in the target's popup. Fully in-harness -- no external faucet needed.
+ */
+async function relayFromPayer(
+  payer: Wallet, payerPage: Page, target: Wallet, targetAddress: string, dappPage: Page
+): Promise<boolean> {
+  log(`${target.name}: relaying 20000000 private XTR from ${payer.name}`);
+  let result: any;
+  try {
+    result = await requestWithApproval(
+      payer,
+      payerPage,
+      {
+        kind: "sendPrivately",
+        resourceAddress: TARI_RESOURCE_ADDRESS,
+        recipientWalletAddress: targetAddress,
+        amount: "20000000",
+        feeType: "private",
+        enforceFeeType: true,
+      },
+      "sendPrivately (in-harness funding relay)"
+    );
+  } catch (e) {
+    log(`${target.name}: relay send failed: ${e instanceof Error ? e.message.split("\n")[0] : e}`);
+    return false;
+  }
+  const commitment: string | undefined = result?.recipientCommitment ?? result?.recipient_commitment;
+  if (!commitment) {
+    log(`${target.name}: relay result carried no recipientCommitment: ${JSON.stringify(result).slice(0, 200)}`);
+    return false;
+  }
+  log(`${target.name}: claiming relayed private payment (commitment ${commitment.slice(0, 16)}...)`);
+  try {
+    await popupSend(target.popup, { kind: "popup-claim-private-payment", resourceAddress: TARI_RESOURCE_ADDRESS, commitment });
+  } catch (e) {
+    log(`${target.name}: relay claim failed: ${e instanceof Error ? e.message.split("\n")[0] : e}`);
+    return false;
+  }
+  return await discoverAndUnshieldInbound(target, dappPage);
+}
+
+/** Fund a wallet: already-funded skips everything; else discover inbound private transfers, then the on-chain faucet, then the community faucet. */
+async function fundWallet(
+  wallet: Wallet,
+  walletAddress: string,
+  dappPage: Page,
+  relay?: { payer: Wallet; payerPage: Page }
+): Promise<void> {
   await popupSend(wallet.popup, { kind: "popup-set-auto-lock-minutes", minutes: 480 });
   // A wallet that already holds revealed XTR (e.g. funded manually out of band, or a rerun) needs
   // no faucet at all -- every faucet is one-shot per wallet, so never re-drive a funded one.
@@ -395,6 +509,19 @@ async function fundWallet(wallet: Wallet, walletAddress: string, dappPage: Page)
   await ensureUnlocked(wallet);
   if (await fundViaOnchainFaucet(wallet)) {
     log(`${wallet.name}: FUNDED via the on-chain faucet (revealed XTR ${await revealedXtr(wallet)})`);
+    return;
+  }
+  // Inbound private transfers (manual funding requested from another browser) land as stealth
+  // outputs -- discover + unshield before escalating to any interactive faucet.
+  log(`${wallet.name}: on-chain faucet unavailable -- checking for inbound private transfers`);
+  if (await discoverAndUnshieldInbound(wallet, dappPage)) {
+    log(`${wallet.name}: FUNDED via inbound private transfer (revealed XTR ${await revealedXtr(wallet)})`);
+    return;
+  }
+  // Last automated alternative before any interactive faucet: relay private XTR from the payer
+  // (sendPrivately + out-of-band recipientCommitment claim). Deterministic, no external service.
+  if (relay && (await relayFromPayer(relay.payer, relay.payerPage, wallet, walletAddress, dappPage))) {
+    log(`${wallet.name}: FUNDED via payer relay (revealed XTR ${await revealedXtr(wallet)})`);
     return;
   }
   // Escalation rule: the on-chain faucet vault is dry. The community faucet below is the only
@@ -439,7 +566,20 @@ async function approveWindow(wallet: Wallet, expectUrlPart: string | null, what:
   await page.waitForSelector("#approve", { timeout: 60_000 });
   const label = (await page.locator("#approve").innerText()).trim();
   log(`${wallet.name}: approval window for ${what} -- clicking "${label}"`);
-  await page.locator("#approve").click();
+  // force:true -- the approval UI re-renders on status polls, which keeps the button "not stable"
+  // for Playwright's actionability window; a mid-render window close then aborts the whole run.
+  page.on("close", () => log(`${wallet.name}: approval window for ${what} CLOSED (url was ${page.url()})`));
+  try {
+    await page.locator("#approve").click({ force: true, timeout: 30_000 });
+  } catch (e) {
+    // Benign race: resolveApproval() closes the approval window the instant the click lands, so
+    // Playwright can see "Target page ... closed" mid-click even though the click was delivered.
+    if (page.isClosed()) {
+      log(`${wallet.name}: approval window for ${what} closed on click (delivered)`);
+    } else {
+      throw e;
+    }
+  }
   return page;
 }
 
@@ -623,7 +763,7 @@ async function scenarioHappy(seedIndex: number, payerInfo: SeedInfo, merchantInf
       const payerPage = await connectDapp(payer);
       const merchantPage = await connectDapp(merchant);
       await fundWallet(payer, payerInfo.walletAddress, payerPage);
-      await fundWallet(merchant, merchantInfo.walletAddress, merchantPage);
+      await fundWallet(merchant, merchantInfo.walletAddress, merchantPage, { payer, payerPage });
       const purchase = await runPurchaseLeg(payer, merchant, payerPage, merchantPage, merchantInfo.viewSecretHex);
 
       // Poll the settlement through the merchant service (which proxies the facilitator),
@@ -690,7 +830,7 @@ async function scenarioRefund(seedIndex: number, payerInfo: SeedInfo, merchantIn
       const payerPage = await connectDapp(payer);
       const merchantPage = await connectDapp(merchant);
       await fundWallet(payer, payerInfo.walletAddress, payerPage);
-      await fundWallet(merchant, merchantInfo.walletAddress, merchantPage);
+      await fundWallet(merchant, merchantInfo.walletAddress, merchantPage, { payer, payerPage });
       const purchase = await runPurchaseLeg(payer, merchant, payerPage, merchantPage, merchantInfo.viewSecretHex);
       assert(purchase.claimResp.frozen === true, "facilitator FROZEN: claim held, broadcast never confirmed");
 

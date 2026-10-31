@@ -27,7 +27,7 @@
 // wallet-boundary checks on top, it does not replace them.
 import type { TransactionRequestOperation, X402SignedClaimPayload } from "../lib/messages";
 import { validateX402SignClaimTerms, type X402SignClaimOperation } from "./x402";
-import { buildHtlcSpendStatement, describeHtlcConditions, fromHex } from "@chironbuilder/ootle-sdk";
+import { buildHtlcSpendStatement, describeHtlcConditions, fromHex, htlcConditions } from "@chironbuilder/ootle-sdk";
 import type { HtlcExpectations } from "@chironbuilder/ootle-sdk";
 import {
   TransactionBuilder,
@@ -244,6 +244,46 @@ export function finalizeSignedClaim(sealedEnvelopeBase64: string, htlcOutputComm
  * 5. On-chain decrypt of the funded output; its recovered value must equal the quote's amount.
  * 6. Only then: statement (real wasm, self-validating), envelope, sign, seal.
  */
+/**
+ * Rebuilds the relayed HTLC condition tree in the SDK builder's own canonical insertion order.
+ * Extracts the claimant key from the claim leaf and the refunder key from the refund leaf —
+ * verbatim from the relayed tree, never from this account — so the security property of
+ * `verifyHtlcTerms`' rebuild comparison (the claim leaf must pay the *relayed* claimant, which
+ * must in turn be this account) is fully preserved; only atom/key ordering is normalized.
+ * Returns null for any tree the extraction cannot read (the SDK's verify then reports it).
+ */
+function canonicalizeRelayedConditions(conditions: object[]): object[] | null {
+  const claimLeaf = conditions[0] as unknown[] | undefined;
+  const refundLeaf = conditions[1] as unknown[] | undefined;
+  if (!Array.isArray(claimLeaf) || !Array.isArray(refundLeaf)) return null;
+  const keyOf = (leaf: unknown[]): string | null => {
+    for (const atom of leaf) {
+      const id = (atom as any)?.AccessRule?.Restricted?.Require?.Require?.NonFungibleAddress?.id?.U256;
+      if (typeof id === "string" && /^[0-9a-f]{64}$/i.test(id)) return id.toLowerCase();
+    }
+    return null;
+  };
+  const claimantKey = keyOf(claimLeaf);
+  const refunderKey = keyOf(refundLeaf);
+  if (!claimantKey || !refunderKey) return null;
+  let described: { hashLockHex: string; refundEpoch: bigint };
+  try {
+    described = describeHtlcConditions(conditions as never);
+  } catch {
+    return null;
+  }
+  try {
+    return htlcConditions({
+      hashLockHex: described.hashLockHex,
+      refundEpoch: described.refundEpoch,
+      claimantPublicKeyHex: claimantKey,
+      refunderPublicKeyHex: refunderKey,
+    }) as unknown as object[];
+  } catch {
+    return null;
+  }
+}
+
 export async function buildSignedX402Claim(
   account: X402ClaimSignerAccount,
   operation: X402SignClaimOperation
@@ -259,17 +299,26 @@ export async function buildSignedX402Claim(
     throw new Error("x402SignClaim: this account is not the quote's claimant — only the merchant's own wallet may sign the claim.");
   }
 
+  // Canonicalization (e2e round 2 finding): the relayed tree can arrive with JSON key order
+  // canonicalized by a serialization boundary (chrome.storage request records alphabetize keys),
+  // while htlcConditions() emits insertion order -- and verifyHtlcTerms' rebuild comparison is a
+  // raw JSON.stringify, which is key-order sensitive. A semantically identical tree would be
+  // rejected as "not a standard HTLC". Rebuild the relayed tree with the SDK's own builder,
+  // extracting BOTH keys from the relayed leaves -- never substituting this account's own, so the
+  // verify below still catches a tree whose claim leaf pays someone else. A tree the extractor
+  // cannot read is passed through untouched: the SDK's verify reports it on its own terms.
+  const canonicalized = canonicalizeRelayedConditions(conditions);
+  const canonicalConditions = canonicalized ?? conditions;
   const verification = await account.verifyHtlc(
     envelope.resourceAddress,
     htlcOutputCommitmentHex,
-    conditions,
+    canonicalConditions,
     { amount: BigInt(envelope.amount), hashLockHex: envelope.hashLockHex, refundEpoch: BigInt(envelope.refundEpoch) },
     preimageHex
   );
   if (!verification.ok) {
     throw new Error(`x402SignClaim: the funded HTLC does not match the quote — ${verification.problems.join("; ")}`);
   }
-
   const substateId = stealthUtxoSubstateId(envelope.resourceAddress, fromHex(htlcOutputCommitmentHex));
   const decrypted = await decryptOwnedUtxo(
     new WasmStealthCrypto(account.network),
@@ -286,7 +335,7 @@ export async function buildSignedX402Claim(
 
   const statementJson = buildX402ClaimStatement({
     network: account.network,
-    conditions,
+    conditions: canonicalConditions,
     preimageHex,
     mask: decrypted.mask.toHex(),
     value: decrypted.value,

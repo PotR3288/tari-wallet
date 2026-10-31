@@ -378,18 +378,18 @@ export class X402Facilitator {
       );
     }
 
-    // Checklist gate 2 (and gate 1's envelope half): the indexer's dry-run is the signature/
-    // admissibility oracle — it decodes the sealed BOR envelope natively and aborts per-input
-    // with a structured reason when the signature does not satisfy the claim leaf's AccessRule
-    // or anything else is inadmissible. Any dry-run failure maps to SIGNATURE_INVALID.
+    // Checklist gate 2 (and gate 1's envelope half): structural payload checks only. Two reasons
+    // the dry-run oracle is gone: (a) the frozen spec's confidentiality note forbids any
+    // dry-run/preflight stage; (b) mechanically the indexer's /transactions/dry-run endpoint only
+    // accepts envelopes whose `dry_run` flag was set INSIDE the signed payload, so a
+    // broadcast-bound claim can never be dry-run. Signature/admissibility is proven by the
+    // broadcast itself (triggerBroadcast -> pollToConfirmed never converts a rejection to
+    // `confirmed`). Here the payload must at least be decodable hex -> bytes, else
+    // SIGNATURE_INVALID.
     try {
-      const { admissible, detail } = await this.chain.dryRun(bytesToBase64(fromHex(req.signedPayloadHex)));
-      if (!admissible) {
-        throw new SettlementError("SIGNATURE_INVALID", `The dry-run rejected the sealed claim: ${detail ?? "no abort reason supplied"}.`);
-      }
+      bytesToBase64(fromHex(req.signedPayloadHex));
     } catch (e) {
-      if (e instanceof SettlementError) throw e;
-      throw new SettlementError("SIGNATURE_INVALID", `The dry-run could not be performed: ${e instanceof Error ? e.message : String(e)}`);
+      throw new SettlementError("SIGNATURE_INVALID", `The signed payload is not decodable bytes: ${e instanceof Error ? e.message : String(e)}`);
     }
   }
 }

@@ -231,16 +231,19 @@ describe("validation matrix (one distinct error per rejection cause)", () => {
     await expectReject(chain, baseRequest(), "AMOUNT_MISMATCH");
   });
 
-  it("SIGNATURE_INVALID: the dry-run rejects the sealed claim", async () => {
-    const { chain } = makeFakeChain({
-      dryRun: async () => ({ admissible: false, detail: "ScriptPath: invalid signature" }),
-    });
-    await expectReject(chain, baseRequest(), "SIGNATURE_INVALID");
+  it("PAYLOAD_MALFORMED: the signed payload is not decodable hex bytes", async () => {
+    const { chain } = makeFakeChain();
+    const facilitator = new X402Facilitator(chain, () => NOW);
+    const req = baseRequest();
+    req.signedPayloadHex = "zzzz-not-hex";
+    await expect(facilitator.settle(req)).rejects.toMatchObject({ code: "PAYLOAD_MALFORMED" });
   });
 
-  it("SIGNATURE_INVALID: the dry-run endpoint itself fails", async () => {
-    const { chain } = makeFakeChain({ dryRun: async () => { throw new Error("HTTP 503"); } });
-    await expectReject(chain, baseRequest(), "SIGNATURE_INVALID");
+  it("settle holds a well-formed payload without any dry-run (spec: no preflight stage)", async () => {
+    const { chain } = makeFakeChain();
+    const facilitator = new X402Facilitator(chain, () => NOW);
+    const resp = await facilitator.settle(baseRequest());
+    expect(resp.status).toBe("held");
   });
 
   it("UNKNOWN_DIGEST: GET for a digest that was never settled", async () => {
@@ -263,12 +266,12 @@ describe("hold state machine", () => {
 
     const settled = await facilitator.settle(request);
     expect(settled).toEqual({ localDigest: localDigestOf(request.signedPayloadHex), status: "held" });
-    expect(calls.dryRun).toBe(1);
+    expect(calls.dryRun).toBe(0); // the dry-run oracle is gone (spec: no preflight stage)
 
     // Idempotent re-POST on the same localDigest: same status response, NO re-validation.
     const rePosted = await facilitator.settle(baseRequest());
     expect(rePosted).toEqual(settled);
-    expect(calls.dryRun).toBe(1);
+    expect(calls.getStealthUtxo).toBe(1); // the chain reads happened once -- re-POST revalidated nothing
     expect(calls.submit).toBe(0);
     expect((await facilitator.getSettlement(settled.localDigest)).status).toBe("held");
 
