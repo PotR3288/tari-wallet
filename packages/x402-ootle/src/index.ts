@@ -8,6 +8,7 @@ export type { TariProvider, TariRequestRecord } from "./tari.js";
 export {
   X402PaymentRequired,
   X402QuoteParseError,
+  X402UnsupportedVersionError,
   X402WalletError,
   X402NoWalletError,
   X402IncompleteResultError,
