@@ -1,0 +1,84 @@
+# x402 over Tari Ootle (Sapient fork)
+
+> A payment rail implementing the x402 pay-per-request protocol over Tari Ootle: a
+> Sapient (chironbuilds/tari-wallet) fork gains an x402 quote envelope and a sign-only
+> claim mode, the Ootle indexer acts as settlement facilitator (hold-then-broadcast),
+> and a zero-dependency client package drives the flow. Both scenarios (happy path and
+> forced refund) are live-verified on the esmeralda testnet.
+
+Branch: `x402/quote-and-signonly` on https://github.com/potr3288/tari-wallet
+(base: chironbuilds/tari-wallet @ e2f7bf9, 0.6.17). Key commits: 8828a7a (envelope +
+honest capability), 6f24c8c (e2e harness), e82cf1c (SDK key-order workaround +
+facilitator dry-run removal), b2e2321 (refund harness fixes), 1b96487 (honesty
+semantics), aee37c8 (dApp doc + foundation cross-check), 136ba44 (v2-response
+detection), d920e07 (docs for it).
+
+## Docs
+
+- docs/x402-facilitator.md: the settlement interface spec (the whole contract). POST
+  /x402/settle idempotent on `localDigest`, GET /x402/settlement/{digest}, hold →
+  broadcast → confirmed/expired state machine, nine-cause error contract, validation
+  checklist, confidentiality rule (no preflight may see the preimage), and a trust &
+  honesty-semantics section (HTLC = client backstop, indexer hold power disclosed).
+- docs/integration/x402.md: dApp-facing guide. The 402 quote envelope fields, the
+  pay/settle/refund flow, and a field-by-field alignment table against the x402
+  foundation repo's v2 specification, including the four deliberate wire deviations
+  and the implemented v2-response detection.
+- docs/integration/transaction-requests.md: the create/approve/submit transaction-request
+  flow both new kinds use (reload-resume, no programmatic approval).
+- packages/x402-ootle/README.md: the client package (@potr3288/x402-ootle) — pay402()
+  fetch wrapper, pay(), settle(), refund on expiry, error taxonomy.
+- e2e/harness/README.md: the live-testnet harness (real popup approvals, deterministic
+  wallets, frozen-facilitator refund scenario) and the local facilitator stand-in.
+
+## Wire shape (short version)
+
+On 402 the server sends `PAYMENT-REQUIRED: <JSON>` with the flat quote envelope:
+resourceUrl, resourceSha256?, amount (raw base units), resourceAddress, claimantAddress,
+hashLockHex (64-hex SHA-256 of the claim secret), refundEpoch, facilitatorUrl,
+facilitatorPubKeyHex?, expiresAt (ms), maxFee?. The refund leaf is AfterEpoch(refundEpoch)
+and is STRICT: spendable at refundEpoch + 1, not at refundEpoch. The claim leaf is
+BeforeEpoch(refundEpoch), so the quote convention is validUntilEpoch = refundEpoch − 1.
+Foundation x402 v2 responses (base64 PaymentRequired with accepts[]) are DETECTED and
+rejected with X402UnsupportedVersionError — deliberate non-interop until an Ootle scheme
+spec is approved upstream.
+
+## Settlement ordering (merchant-initiated hold-then-broadcast)
+
+Fund (x402Pay → htlcFund) → merchant signs claim (x402SignClaim, sign-only, status
+signed-unbroadcast) → merchant POSTs /x402/settle → facilitator validates against its
+own chain index and HOLDS → merchant serves the resource → merchant confirms →
+facilitator broadcasts. If never broadcast, the funder recovers via htlcRefund after
+refundEpoch (chain-enforced; live-verified). Residual risk, documented: a merchant that
+claims and broadcasts without serving cannot be stopped at the payment layer — same as
+ETH x402's "paid but no 200".
+
+## Wallet surface
+
+- x402Pay: validates the envelope (distinct actionable errors per failure), executes as
+  an htlcFund, returns commitment + conditions + outputMask (the refund path is
+  load-bearing — clients must persist it).
+- x402SignClaim: build/sign/seal the HTLC claim WITHOUT broadcasting
+  (src/background/x402SignOnly.ts). History records it as signed-unbroadcast. Popup copy
+  says explicitly: "Sign only — not submitted to the network."
+- tari_getCapabilities: signOnly: isLocal (honest; verified live; does not claim delivery
+  proof or facilitator honesty).
+
+## Testing
+
+278 extension tests + 34 client-package tests + 24 facilitator-standin tests, typecheck
+and build clean. Live e2e on esmeralda: happy path PASS (claim tx 21257dd3cb0e…891a0b2
+finalized Commit) and refund PASS (facilitator frozen, refund tx 52a51a16ee86…ec9f1
+finalized Commit at epoch 12759 = refundEpoch 12758 + 1).
+
+## Upstream-relevant SDK findings
+
+1. @chironbuilder/ootle-sdk verifyHtlcTerms is key-order sensitive (raw JSON.stringify
+   comparison vs storage-canonicalized trees) — worked around via
+   canonicalizeRelayedConditions(); upstream should canonicalize.
+2. htlcClaim is submit-wired end to end; sign-only flows need the pipeline minus submit
+   (buildScriptPathWitness + buildStealthTransferStatement + TransactionBuilder →
+   resolve → sign → seal all work at 0.1.30).
+3. AfterEpoch(N) semantics are strict (spendable at N+1) — worth documenting.
+4. sendPrivately outputs are not view-key scannable; recipientCommitment must be
+   delivered out of band.
