@@ -1,0 +1,199 @@
+diff --git a/crates/ootle_wasm/core/src/chiron.rs b/crates/ootle_wasm/core/src/chiron.rs
+new file mode 100644
+index 0000000..ff3072c
+--- /dev/null
++++ b/crates/ootle_wasm/core/src/chiron.rs
+@@ -0,0 +1,96 @@
++//   Copyright 2026 chironbuilds
++//   SPDX-License-Identifier: BSD-3-Clause
++
++//! chironbuilds additions (not upstream): L1 burn-claim key derivation/validation and a
++//! client-side `ConfidentialWithdrawProof` literal. Re-ported onto v0.49.2.
++
++use ootle_network::Network;
++use tari_crypto::{keys::PublicKey, ristretto::RistrettoPublicKey, tari_utilities::ByteArray};
++use tari_ootle_wallet_crypto::{MaskAndValue, StealthCryptoApi, confidential::create_withdraw_proof, kdfs};
++use tari_template_lib_types::{
++    Amount,
++    crypto::{RistrettoPublicKeyBytes, SchnorrSignatureBytes},
++};
++
++use crate::{
++    error::OotleWasmError,
++    keys::{commitment_bytes_from_bytes, public_key_from_bytes, secret_key_from_bytes},
++    stealth::{InputWitness, OutputWitnessJson, types::decode_secret_key},
++};
++
++/// `s = H(p·R) + p` (L1 `stealth_address` domain) for claiming an L1 burn.
++pub fn burn_claim_stealth_secret(account_secret: &[u8], sender_offset_public_key: &[u8]) -> Result<Vec<u8>, OotleWasmError> {
++    let p = secret_key_from_bytes(account_secret)?;
++    let r = public_key_from_bytes(sender_offset_public_key)?;
++    Ok(kdfs::burn_claim_stealth_secret(&p, &r).as_bytes().to_vec())
++}
++
++/// Validate a burn ownership proof against `C = s·G`, exactly as a validator does.
++pub fn validate_burn_claim_ownership_proof(
++    network_byte: u8,
++    ownership_nonce: &[u8],
++    ownership_signature: &[u8],
++    commitment: &[u8],
++    value: u64,
++    stealth_secret: &[u8],
++) -> Result<bool, OotleWasmError> {
++    let network = Network::try_from(network_byte).map_err(|e| OotleWasmError::InvalidNetwork(e.to_string()))?;
++    let s = secret_key_from_bytes(stealth_secret)?;
++    let claimant = RistrettoPublicKey::from_secret_key(&s);
++    let claimant = RistrettoPublicKeyBytes::from_bytes(claimant.as_bytes())
++        .map_err(|e| OotleWasmError::InvalidPublicKey(e.to_string()))?;
++    let Ok(sig) = SchnorrSignatureBytes::try_from_raw_parts(ownership_nonce, ownership_signature) else {
++        return Ok(false);
++    };
++    let commitment = commitment_bytes_from_bytes(commitment)?;
++    Ok(StealthCryptoApi::new().validate_burn_claim_ownership_proof(network, &sig, &commitment, value, &claimant))
++}
++
++/// tari_bor-encoded `ConfidentialWithdrawProof`, for use as an instruction `Literal` arg.
++pub fn create_confidential_withdraw_proof_literal(
++    inputs_json: &str,
++    input_revealed_amount: u64,
++    output_json: Option<&str>,
++    output_revealed_amount: u64,
++    change_json: Option<&str>,
++    change_revealed_amount: u64,
++) -> Result<Vec<u8>, OotleWasmError> {
++    let inputs: Vec<InputWitness> = serde_json::from_str(inputs_json)?;
++    let inputs = inputs
++        .into_iter()
++        .map(|i| {
++            Ok(MaskAndValue {
++                value: i.value,
++                mask: decode_secret_key(&i.mask, "mask")?,
++            })
++        })
++        .collect::<Result<Vec<_>, OotleWasmError>>()?;
++    let parse = |j: Option<&str>| -> Result<_, OotleWasmError> {
++        match j {
++            Some(s) => Ok(Some(serde_json::from_str::<OutputWitnessJson>(s)?.try_into_witness()?)),
++            None => Ok(None),
++        }
++    };
++    let output = parse(output_json)?;
++    let change = parse(change_json)?;
++    let proof = create_withdraw_proof(
++        &inputs,
++        Amount::from_u64(input_revealed_amount),
++        output.as_ref(),
++        Amount::from_u64(output_revealed_amount),
++        change.as_ref(),
++        Amount::from_u64(change_revealed_amount),
++    )
++    .map_err(|e| OotleWasmError::Stealth(e.to_string()))?;
++    Ok(tari_bor::encode(&proof)?)
++}
++
++/// Ristretto Schnorr signature (tari_crypto `RistrettoSchnorr::sign`) over `message`. Removed
++/// upstream in 0.48 when transaction signing moved to sr25519; kept here for off-chain,
++/// domain-separated ownership proofs whose verifiers expect Ristretto Schnorr.
++pub fn schnorr_sign(secret_key: &[u8], message: &[u8]) -> Result<(Vec<u8>, Vec<u8>), OotleWasmError> {
++    use tari_crypto::ristretto::RistrettoSchnorr;
++    let sk = secret_key_from_bytes(secret_key)?;
++    let sig = RistrettoSchnorr::sign(&sk, message, &mut rand::rng()).map_err(|e| OotleWasmError::Stealth(e.to_string()))?;
++    Ok((sig.get_public_nonce().as_bytes().to_vec(), sig.get_signature().as_bytes().to_vec()))
++}
+diff --git a/crates/ootle_wasm/core/src/lib.rs b/crates/ootle_wasm/core/src/lib.rs
+index 28cde05..ba042a8 100644
+--- a/crates/ootle_wasm/core/src/lib.rs
++++ b/crates/ootle_wasm/core/src/lib.rs
+@@ -10,3 +10,4 @@ pub mod keys;
+ pub mod sign;
+ pub mod stealth;
+ pub mod transaction;
++pub mod chiron;
+diff --git a/crates/ootle_wasm/core/src/stealth/mod.rs b/crates/ootle_wasm/core/src/stealth/mod.rs
+index 371f214..80fd771 100644
+--- a/crates/ootle_wasm/core/src/stealth/mod.rs
++++ b/crates/ootle_wasm/core/src/stealth/mod.rs
+@@ -12,7 +12,7 @@ pub mod inputs;
+ pub mod kdfs;
+ pub mod outputs;
+ pub mod transfer;
+-mod types;
++pub mod types;
+ pub mod validate;
+ pub mod viewable_balance;
+ 
+diff --git a/crates/ootle_wasm/wasm/src/lib.rs b/crates/ootle_wasm/wasm/src/lib.rs
+index 5d6b467..91dfda4 100644
+--- a/crates/ootle_wasm/wasm/src/lib.rs
++++ b/crates/ootle_wasm/wasm/src/lib.rs
+@@ -646,3 +646,70 @@ pub fn decrypt_elgamal_viewable_balance(
+     )
+     .map_err(|e| JsError::new(&e.to_string()))
+ }
++
++// ---- chironbuilds additions (not upstream) ----
++
++/// Derive the stealth claim secret `s = H(p·R) + p` for claiming an L1 (minotari) burn, from the
++/// account secret `p` and the burn's sender offset public key `R`. The claim transaction must be
++/// sealed with this key.
++#[wasm_bindgen(js_name = "burnClaimStealthSecret")]
++pub fn burn_claim_stealth_secret(account_secret: &[u8], sender_offset_public_key: &[u8]) -> Result<Vec<u8>, JsError> {
++    ootle_wasm_core::chiron::burn_claim_stealth_secret(account_secret, sender_offset_public_key)
++        .map_err(|e| JsError::new(&e.to_string()))
++}
++
++/// Check an L1 burn ownership proof against the stealth claim key derived from `stealth_secret`,
++/// exactly as a validator will. `false` means the claim would be rejected.
++///
++/// `network` is the network byte (0x00 = MainNet, 0x10 = LocalNet, 0x26 = Esmeralda, ...).
++#[wasm_bindgen(js_name = "validateBurnClaimOwnershipProof")]
++pub fn validate_burn_claim_ownership_proof(
++    network: u8,
++    ownership_nonce: &[u8],
++    ownership_signature: &[u8],
++    commitment: &[u8],
++    value: BigInt,
++    stealth_secret: &[u8],
++) -> Result<bool, JsError> {
++    let value = u64_arg("value", value)?;
++    ootle_wasm_core::chiron::validate_burn_claim_ownership_proof(
++        network,
++        ownership_nonce,
++        ownership_signature,
++        commitment,
++        value,
++        stealth_secret,
++    )
++    .map_err(|e| JsError::new(&e.to_string()))
++}
++
++/// tari_bor-encoded `ConfidentialWithdrawProof` (the bytes the chain decodes), for use as an
++/// instruction `Literal` argument. `inputs_json` is a JSON array of `{ value, mask }`;
++/// `output_json` / `change_json` are optional `OutputWitnessJson` objects.
++#[wasm_bindgen(js_name = "createConfidentialWithdrawProofLiteral")]
++pub fn create_confidential_withdraw_proof_literal(
++    inputs_json: &str,
++    input_revealed_amount: BigInt,
++    output_json: Option<String>,
++    output_revealed_amount: BigInt,
++    change_json: Option<String>,
++    change_revealed_amount: BigInt,
++) -> Result<Vec<u8>, JsError> {
++    ootle_wasm_core::chiron::create_confidential_withdraw_proof_literal(
++        inputs_json,
++        u64_arg("input_revealed_amount", input_revealed_amount)?,
++        output_json.as_deref(),
++        u64_arg("output_revealed_amount", output_revealed_amount)?,
++        change_json.as_deref(),
++        u64_arg("change_revealed_amount", change_revealed_amount)?,
++    )
++    .map_err(|e| JsError::new(&e.to_string()))
++}
++
++/// Ristretto Schnorr-sign `message` (off-chain proofs only; transactions use sr25519).
++#[wasm_bindgen(js_name = "schnorrSign")]
++pub fn schnorr_sign(secret_key: &[u8], message: &[u8]) -> Result<SchnorrSignatureResult, JsError> {
++    let (public_nonce, signature) =
++        ootle_wasm_core::chiron::schnorr_sign(secret_key, message).map_err(|e| JsError::new(&e.to_string()))?;
++    Ok(SchnorrSignatureResult { public_nonce, signature })
++}

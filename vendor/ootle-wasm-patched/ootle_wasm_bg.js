@@ -29,7 +29,7 @@ export class DecryptedOutputResult {
         return v1;
     }
     /**
-     * JSON-encoded `Memo` (variants: `U256` / `Message` / `Bytes` / `PayRefAndBytes`), or `null` if
+     * JSON-encoded `Memo` (variants: `U256` / `Message` / `Bytes` / `DestinationTagAndBytes`), or `null` if
      * the payload carried no memo or `skipMemo` was set.
      * @returns {string | undefined}
      */
@@ -60,7 +60,7 @@ export class DecryptedOutputResult {
         wasm.__wbg_set_decryptedoutputresult_mask(this.__wbg_ptr, ptr0, len0);
     }
     /**
-     * JSON-encoded `Memo` (variants: `U256` / `Message` / `Bytes` / `PayRefAndBytes`), or `null` if
+     * JSON-encoded `Memo` (variants: `U256` / `Message` / `Bytes` / `DestinationTagAndBytes`), or `null` if
      * the payload carried no memo or `skipMemo` was set.
      * @param {string | null} [arg0]
      */
@@ -279,11 +279,11 @@ export class ParsedOotleAddress {
         wasm.__wbg_parsedootleaddress_free(ptr, 0);
     }
     /**
-     * Optional pay reference / memo bytes.
+     * Optional destination tag bytes.
      * @returns {Uint8Array | undefined}
      */
-    get memo() {
-        const ret = wasm.__wbg_get_parsedootleaddress_memo(this.__wbg_ptr);
+    get destination_tag() {
+        const ret = wasm.__wbg_get_parsedootleaddress_destination_tag(this.__wbg_ptr);
         let v1;
         if (ret[0] !== 0) {
             v1 = getArrayU8FromWasm0(ret[0], ret[1]).slice();
@@ -320,13 +320,13 @@ export class ParsedOotleAddress {
         return v1;
     }
     /**
-     * Optional pay reference / memo bytes.
+     * Optional destination tag bytes.
      * @param {Uint8Array | null} [arg0]
      */
-    set memo(arg0) {
+    set destination_tag(arg0) {
         var ptr0 = isLikeNone(arg0) ? 0 : passArray8ToWasm0(arg0, wasm.__wbindgen_malloc);
         var len0 = WASM_VECTOR_LEN;
-        wasm.__wbg_set_parsedootleaddress_memo(this.__wbg_ptr, ptr0, len0);
+        wasm.__wbg_set_parsedootleaddress_destination_tag(this.__wbg_ptr, ptr0, len0);
     }
     /**
      * The network byte.
@@ -543,6 +543,84 @@ export function aggregateInputMasks(masks_concat) {
 }
 
 /**
+ * Seal a transaction (unsigned or unsealed JSON) with a signature from an external signer (HSM, MPC).
+ *
+ * `signature` is the 64-byte sr25519 signature (scheme in the NPM README) over the hash from
+ * `hashUnsealedTransaction`, made by the key for `seal_signer_public_key`. The seal and any
+ * authorization signatures are verified.
+ * Returns the sealed `Transaction` as a JSON string.
+ * @param {string} tx_json
+ * @param {Uint8Array} seal_signer_public_key
+ * @param {Uint8Array} signature
+ * @returns {string}
+ */
+export function attachSealSignature(tx_json, seal_signer_public_key, signature) {
+    let deferred5_0;
+    let deferred5_1;
+    try {
+        const ptr0 = passStringToWasm0(tx_json, wasm.__wbindgen_malloc, wasm.__wbindgen_realloc);
+        const len0 = WASM_VECTOR_LEN;
+        const ptr1 = passArray8ToWasm0(seal_signer_public_key, wasm.__wbindgen_malloc);
+        const len1 = WASM_VECTOR_LEN;
+        const ptr2 = passArray8ToWasm0(signature, wasm.__wbindgen_malloc);
+        const len2 = WASM_VECTOR_LEN;
+        const ret = wasm.attachSealSignature(ptr0, len0, ptr1, len1, ptr2, len2);
+        var ptr4 = ret[0];
+        var len4 = ret[1];
+        if (ret[3]) {
+            ptr4 = 0; len4 = 0;
+            throw takeFromExternrefTable0(ret[2]);
+        }
+        deferred5_0 = ptr4;
+        deferred5_1 = len4;
+        return getStringFromWasm0(ptr4, len4);
+    } finally {
+        wasm.__wbindgen_free(deferred5_0, deferred5_1, 1);
+    }
+}
+
+/**
+ * Add an authorization signature from an external signer (HSM, MPC) to a transaction (unsigned or
+ * unsealed JSON).
+ *
+ * `signature` is the 64-byte sr25519 signature (scheme in the NPM README) over the hash from
+ * `hashUnsignedTransaction` for `seal_signer_public_key`, made by the key for
+ * `signer_public_key`. It is verified before it is appended.
+ * Returns the `UnsealedTransactionV1` (with the new signature appended) as a JSON string.
+ * @param {string} tx_json
+ * @param {Uint8Array} signer_public_key
+ * @param {Uint8Array} signature
+ * @param {Uint8Array} seal_signer_public_key
+ * @returns {string}
+ */
+export function attachTransactionSignature(tx_json, signer_public_key, signature, seal_signer_public_key) {
+    let deferred6_0;
+    let deferred6_1;
+    try {
+        const ptr0 = passStringToWasm0(tx_json, wasm.__wbindgen_malloc, wasm.__wbindgen_realloc);
+        const len0 = WASM_VECTOR_LEN;
+        const ptr1 = passArray8ToWasm0(signer_public_key, wasm.__wbindgen_malloc);
+        const len1 = WASM_VECTOR_LEN;
+        const ptr2 = passArray8ToWasm0(signature, wasm.__wbindgen_malloc);
+        const len2 = WASM_VECTOR_LEN;
+        const ptr3 = passArray8ToWasm0(seal_signer_public_key, wasm.__wbindgen_malloc);
+        const len3 = WASM_VECTOR_LEN;
+        const ret = wasm.attachTransactionSignature(ptr0, len0, ptr1, len1, ptr2, len2, ptr3, len3);
+        var ptr5 = ret[0];
+        var len5 = ret[1];
+        if (ret[3]) {
+            ptr5 = 0; len5 = 0;
+            throw takeFromExternrefTable0(ret[2]);
+        }
+        deferred6_0 = ptr5;
+        deferred6_1 = len5;
+        return getStringFromWasm0(ptr5, len5);
+    } finally {
+        wasm.__wbindgen_free(deferred6_0, deferred6_1, 1);
+    }
+}
+
+/**
  * BOR-encode a Transaction (JSON string) → base64 string (TransactionEnvelope format).
  * @param {string} transaction_json
  * @returns {string}
@@ -652,10 +730,9 @@ export function buildStealthInputsStatement(input_commitments, revealed_amount_m
  * this accepts a caller-supplied `witness` per input -- the only way to spend an output committed with
  * `PayTo::Conditions` (e.g. claiming or refunding an HTLC-style hashlock/timelock output). Build each
  * script-path input's witness with `buildScriptPathWitness` first; a plain key-path input can still be
- * included in the same call, either with `"witness":"KeyPath"` or by omitting `witness` entirely
- * (defaults to key path).
+ * included in the same call with `"witness":"KeyPath"`.
  *
- * `inputs_json` shape: `[{ "commitment": <hex 32 bytes>, "witness"?: <SpendWitness> }, ...]`.
+ * `inputs_json` shape: `[{ "commitment": <hex 32 bytes>, "witness": <SpendWitness> }, ...]`.
  * @param {string} inputs_json
  * @param {bigint} revealed_amount_microtari
  * @returns {string}
@@ -755,20 +832,9 @@ export function burnClaimStealthSecret(account_secret, sender_offset_public_key)
 }
 
 /**
- * Builds a `ConfidentialWithdrawProof` for the Account template's `withdraw_confidential` /
- * `join_confidential` methods, and returns it `tari_bor`-encoded -- ready to hex-encode and wrap
- * as an instruction `Literal` arg exactly like `microTariLiteral`/`amountLiteral` do for simpler
- * types. Unlike those, this is NOT re-encoded on the JS side: the bytes are already the encoding
- * the chain itself decodes, produced by the same derive-generated `Encode` impl.
- *
- * `inputs_json` is a JSON array of `{ value, mask }` for each confidential UTXO being spent — `"[]"`
- * for a revealed-only withdrawal (depositing into the vault). `output_json` / `change_json` are each
- * an optional JSON object (see `createStealthOutputWitness`'s `OutputWitnessJson` shape) — omit to
- * skip that side. `*_revealed_amount` is the plaintext portion on each side; confidential and
- * revealed amounts can be mixed on either side.
- *
- * Throws if `inputs_json`/`output_json`/`change_json` don't parse, or if any mask isn't a valid
- * 32-byte Ristretto scalar.
+ * tari_bor-encoded `ConfidentialWithdrawProof` (the bytes the chain decodes), for use as an
+ * instruction `Literal` argument. `inputs_json` is a JSON array of `{ value, mask }`;
+ * `output_json` / `change_json` are optional `OutputWitnessJson` objects.
  * @param {string} inputs_json
  * @param {bigint} input_revealed_amount
  * @param {string | null | undefined} output_json
@@ -997,14 +1063,14 @@ export function generateKeypair() {
  * Generate an Ootle address (bech32m string) from public keys.
  *
  * `network` is the network byte (0x00 = MainNet, 0x10 = LocalNet, 0x26 = Esmeralda, etc.).
- * `memo` is an optional pay reference (max 64 bytes).
+ * `destination_tag` is optional (max 64 bytes).
  * @param {Uint8Array} owner_public_key
  * @param {Uint8Array} view_public_key
  * @param {number} network
- * @param {Uint8Array | null} [memo]
+ * @param {Uint8Array | null} [destination_tag]
  * @returns {string}
  */
-export function generateOotleAddress(owner_public_key, view_public_key, network, memo) {
+export function generateOotleAddress(owner_public_key, view_public_key, network, destination_tag) {
     let deferred5_0;
     let deferred5_1;
     try {
@@ -1012,7 +1078,7 @@ export function generateOotleAddress(owner_public_key, view_public_key, network,
         const len0 = WASM_VECTOR_LEN;
         const ptr1 = passArray8ToWasm0(view_public_key, wasm.__wbindgen_malloc);
         const len1 = WASM_VECTOR_LEN;
-        var ptr2 = isLikeNone(memo) ? 0 : passArray8ToWasm0(memo, wasm.__wbindgen_malloc);
+        var ptr2 = isLikeNone(destination_tag) ? 0 : passArray8ToWasm0(destination_tag, wasm.__wbindgen_malloc);
         var len2 = WASM_VECTOR_LEN;
         const ret = wasm.generateOotleAddress(ptr0, len0, ptr1, len1, network, ptr2, len2);
         var ptr4 = ret[0];
@@ -1111,8 +1177,30 @@ export function generateStealthOutputsStatement(witnesses_json, revealed_output_
 }
 
 /**
- * Hash an UnsignedTransactionV1 (JSON string) for signing.
- * Returns the 64-byte signing message that must be Schnorr-signed.
+ * Hash a transaction (unsigned or unsealed JSON) for sealing.
+ * Returns the 64-byte seal message that the seal signer must sign.
+ *
+ * The seal message covers every authorization signature, so attach all of them before hashing.
+ * @param {string} tx_json
+ * @returns {Uint8Array}
+ */
+export function hashUnsealedTransaction(tx_json) {
+    const ptr0 = passStringToWasm0(tx_json, wasm.__wbindgen_malloc, wasm.__wbindgen_realloc);
+    const len0 = WASM_VECTOR_LEN;
+    const ret = wasm.hashUnsealedTransaction(ptr0, len0);
+    if (ret[3]) {
+        throw takeFromExternrefTable0(ret[2]);
+    }
+    var v2 = getArrayU8FromWasm0(ret[0], ret[1]).slice();
+    wasm.__wbindgen_free(ret[0], ret[1] * 1, 1);
+    return v2;
+}
+
+/**
+ * Hash a transaction (unsigned or unsealed JSON) for an authorization signature.
+ * Returns the 64-byte signing message that must be sr25519-signed.
+ *
+ * The message excludes attached signatures, so it is the same before and after `attachTransactionSignature`.
  *
  * `seal_signer_public_key` is the raw bytes of the seal signer's public key (account owner).
  * @param {string} unsigned_tx_json
@@ -1161,7 +1249,7 @@ export function ootlePublicKeyFromSecretKey(owner_key, view_key) {
 
 /**
  * Parse a bech32m Ootle address string into its components.
- * Returns { owner_key: Uint8Array, view_key: Uint8Array, network: number, memo: Uint8Array | undefined }.
+ * Returns { owner_key: Uint8Array, view_key: Uint8Array, network: number, destination_tag: Uint8Array | undefined }.
  * @param {string} address
  * @returns {ParsedOotleAddress}
  */
@@ -1193,8 +1281,7 @@ export function publicKeyFromSecretKey(secret_key) {
 }
 
 /**
- * Schnorr-sign a message with a secret key.
- * Returns { public_nonce: Uint8Array, signature: Uint8Array }.
+ * Ristretto Schnorr-sign `message` (off-chain proofs only; transactions use sr25519).
  * @param {Uint8Array} secret_key
  * @param {Uint8Array} message
  * @returns {SchnorrSignatureResult}
@@ -1244,28 +1331,31 @@ export function sealTransaction(tx_json, seal_signer_secret_key) {
 }
 
 /**
- * Derive the recipient's stealth spending scalar `c + k`, where `c = H(network || k.G * r)`. The
- * receiver runs this with their account secret key (`private_key`) and the sender-provided public
- * nonce to obtain the one-time secret that controls the stealth output.
+ * Derive the recipient's stealth spending scalar `c + k`, where `c = H(network || v·R)`. The
+ * receiver runs this with their account secret key `k`, view secret key `v` and the sender-provided
+ * public nonce `R` to obtain the one-time secret that controls the stealth output.
  *
  * `network` is the network byte (0x00 = MainNet, 0x10 = LocalNet, 0x26 = Esmeralda, ...).
  * @param {number} network
- * @param {Uint8Array} private_key
+ * @param {Uint8Array} account_secret
+ * @param {Uint8Array} view_secret
  * @param {Uint8Array} public_nonce
  * @returns {Uint8Array}
  */
-export function stealthDhSecret(network, private_key, public_nonce) {
-    const ptr0 = passArray8ToWasm0(private_key, wasm.__wbindgen_malloc);
+export function stealthDhSecret(network, account_secret, view_secret, public_nonce) {
+    const ptr0 = passArray8ToWasm0(account_secret, wasm.__wbindgen_malloc);
     const len0 = WASM_VECTOR_LEN;
-    const ptr1 = passArray8ToWasm0(public_nonce, wasm.__wbindgen_malloc);
+    const ptr1 = passArray8ToWasm0(view_secret, wasm.__wbindgen_malloc);
     const len1 = WASM_VECTOR_LEN;
-    const ret = wasm.stealthDhSecret(network, ptr0, len0, ptr1, len1);
+    const ptr2 = passArray8ToWasm0(public_nonce, wasm.__wbindgen_malloc);
+    const len2 = WASM_VECTOR_LEN;
+    const ret = wasm.stealthDhSecret(network, ptr0, len0, ptr1, len1, ptr2, len2);
     if (ret[3]) {
         throw takeFromExternrefTable0(ret[2]);
     }
-    var v3 = getArrayU8FromWasm0(ret[0], ret[1]).slice();
+    var v4 = getArrayU8FromWasm0(ret[0], ret[1]).slice();
     wasm.__wbindgen_free(ret[0], ret[1] * 1, 1);
-    return v3;
+    return v4;
 }
 
 /**
@@ -1328,7 +1418,7 @@ export function validateBalanceProofSignature(public_nonce, signature, inputs_st
 }
 
 /**
- * Check an L1 burn's ownership proof against the stealth claim key derived from `stealth_secret`,
+ * Check an L1 burn ownership proof against the stealth claim key derived from `stealth_secret`,
  * exactly as a validator will. `false` means the claim would be rejected.
  *
  * `network` is the network byte (0x00 = MainNet, 0x10 = LocalNet, 0x26 = Esmeralda, ...).
@@ -1381,12 +1471,27 @@ export function __wbg_Error_67e7344beaa85059(arg0, arg1) {
     const ret = Error(getStringFromWasm0(arg0, arg1));
     return ret;
 }
+export function __wbg___wbindgen_bigint_get_as_i64_b482365c149396c8(arg0, arg1) {
+    const v = arg1;
+    const ret = typeof(v) === 'bigint' ? v : undefined;
+    getDataViewMemory0().setBigInt64(arg0 + 8 * 1, isLikeNone(ret) ? BigInt(0) : ret, true);
+    getDataViewMemory0().setInt32(arg0 + 4 * 0, !isLikeNone(ret), true);
+}
+export function __wbg___wbindgen_jsval_eq_9fdcd3c0a860dd3b(arg0, arg1) {
+    const ret = arg0 === arg1;
+    return ret;
+}
 export function __wbg___wbindgen_throw_5d9e815e6fdf150f(arg0, arg1) {
     throw new Error(getStringFromWasm0(arg0, arg1));
 }
 export function __wbg_getRandomValues_47873ea553f6780e() { return handleError(function (arg0, arg1) {
     globalThis.crypto.getRandomValues(getArrayU8FromWasm0(arg0, arg1));
 }, arguments); }
+export function __wbindgen_generic_0000000000000001(arg0) {
+    // Cast intrinsic for `U64 -> Externref`.
+    const ret = BigInt.asUintN(64, arg0);
+    return ret;
+}
 export function __wbindgen_init_externref_table() {
     const table = wasm.__wbindgen_externrefs;
     const offset = table.grow(4);
@@ -1427,6 +1532,14 @@ function addToExternrefTable0(obj) {
 function getArrayU8FromWasm0(ptr, len) {
     ptr = ptr >>> 0;
     return getUint8ArrayMemory0().subarray(ptr / 1, ptr / 1 + len);
+}
+
+let cachedDataViewMemory0 = null;
+function getDataViewMemory0() {
+    if (cachedDataViewMemory0 === null || cachedDataViewMemory0.buffer.detached === true || (cachedDataViewMemory0.buffer.detached === undefined && cachedDataViewMemory0.buffer !== wasm.memory.buffer)) {
+        cachedDataViewMemory0 = new DataView(wasm.memory.buffer);
+    }
+    return cachedDataViewMemory0;
 }
 
 function getStringFromWasm0(ptr, len) {

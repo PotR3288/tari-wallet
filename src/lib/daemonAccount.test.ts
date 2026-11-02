@@ -180,7 +180,7 @@ describe("toIndexerResultShape", () => {
     expect("Finalized" in shaped).toBe(true);
     if ("Finalized" in shaped) {
       expect(shaped.Finalized.final_decision).toBe("Commit");
-      expect(shaped.Finalized.execution_result?.finalize).toBe(finalize);
+      expect((shaped.Finalized.execution_result as unknown as { finalize: unknown } | null)?.finalize).toBe(finalize);
       expect(shaped.Finalized.abort_details).toBeNull();
     }
   });
@@ -225,7 +225,7 @@ describe("DaemonAccount.getPrivateBalances", () => {
           ],
         }),
       },
-      { fetchSubstates: vi.fn().mockResolvedValue({ substates: { [XTR]: { substate: { Resource: { metadata: { SYMBOL: "tTARI" }, divisibility: 6 } } } } }) }
+      { fetchSubstates: vi.fn().mockResolvedValue({ substates: { [XTR]: { version: 0, value: { Resource: { metadata: { SYMBOL: "tTARI" }, divisibility: 6 } } } } }) }
     );
 
     expect(await account.getPrivateBalances()).toEqual([{ resourceAddress: XTR, amount: 1000n, outputCount: 2, divisibility: 6, symbol: "tTARI", name: null }]);

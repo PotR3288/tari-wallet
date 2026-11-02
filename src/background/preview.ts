@@ -67,7 +67,7 @@ async function vaultResources(account: OotleAccount, component: string): Promise
   if (ids.length === 0) return map;
   const { substates } = await provider.fetchSubstates(ids);
   for (const id of ids) {
-    const value = decodeSubstateValue<{ Vault?: { resource_container: Record<string, { address?: string }> } } | undefined>(substates[id]?.substate);
+    const value = decodeSubstateValue<{ Vault?: { resource_container: Record<string, { address?: string }> } } | undefined>(substates[id]?.value);
     const address = value?.Vault ? Object.values(value.Vault.resource_container)[0]?.address : undefined;
     if (address) map.set(String(id), address);
   }

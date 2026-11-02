@@ -10,7 +10,7 @@
 import { defaultIndexerUrl, getVaultIdsForAccount } from "@tari-project/ootle";
 import { OotleAccount, toOotleNetwork, type NetworkName } from "@chironbuilder/ootle-sdk";
 import { addTransactionHistoryEntry, listTransactionHistory } from "../lib/storage";
-import { decodeEvent } from "../lib/bor";
+import { decodeEvent, decodeSubstateValue } from "../lib/bor";
 
 const EVENT_PAGE = 100;
 const EVENT_PAGES = 5;
@@ -104,7 +104,7 @@ async function fetchDeposits(base: string, provider: Awaited<ReturnType<OotleAcc
   const { substates } = await provider.fetchSubstates(vaultIds);
   const out: Deposit[] = [];
   for (const vaultId of vaultIds) {
-    const value = substates[vaultId]?.substate as { Vault?: { resource_container: Record<string, { address?: string }> } } | undefined;
+    const value = decodeSubstateValue(substates[vaultId]?.value) as { Vault?: { resource_container: Record<string, { address?: string }> } } | undefined;
     const container = value?.Vault ? Object.values(value.Vault.resource_container)[0] : undefined;
     const resourceAddress = container?.address ?? null;
     const order: string[] = [];

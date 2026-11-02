@@ -7,6 +7,7 @@ import {
   resolveTransaction,
   resourceAddressLiteral,
 } from "@tari-project/ootle";
+import { decodeSubstateValue } from "./bor";
 import { IndexerProvider } from "@tari-project/ootle-indexer";
 import { WalletDaemonClient } from "@tari-project/ootle-wallet-daemon-signer";
 import { parseOotleAddress } from "@tari-project/ootle-wasm";
@@ -241,7 +242,7 @@ export class DaemonAccount implements WalletAccountApi {
     const { substates } = await this.indexerProvider.fetchSubstates(resourceIds);
     const nameByResource = new Map<string, string | null>();
     for (const id of resourceIds) {
-      const value = substates[id]?.substate;
+      const value = decodeSubstateValue<Record<string, unknown> | undefined>(substates[id]?.value);
       const resource = value && "Resource" in value ? (value.Resource as { metadata?: Record<string, unknown> }) : undefined;
       const name = resource?.metadata?.name;
       nameByResource.set(id, typeof name === "string" ? name : null);
@@ -273,7 +274,7 @@ export class DaemonAccount implements WalletAccountApi {
    * Mirrors getBalances()'s own indexer substate lookup. */
   private async fetchResourceMeta(resourceAddress: string): Promise<{ name: string | null; symbol: string | null; divisibility: number }> {
     const { substates } = await this.indexerProvider.fetchSubstates([resourceAddress]);
-    const value = substates[resourceAddress]?.substate;
+    const value = decodeSubstateValue<Record<string, unknown> | undefined>(substates[resourceAddress]?.value);
     const resource = value && "Resource" in value ? (value.Resource as { metadata?: Record<string, unknown>; divisibility?: number }) : undefined;
     const name = resource?.metadata?.name;
     const symbol = resource?.metadata?.SYMBOL ?? resource?.metadata?.symbol;
@@ -640,7 +641,7 @@ export class DaemonAccount implements WalletAccountApi {
     // on this flag being true instead, so their `seal_signer`-only, empty-`other_signers` shape
     // works — confirmed empirically: submission failed with exactly that "no main signer" error
     // until this was set, against a live tari_ootle_walletd on esmeralda.
-    unsignedTx.is_seal_signer_authorized = true;
+    unsignedTx.main_signer = "SealSigner";
 
     return {
       transaction: { V1: unsignedTx },
@@ -822,7 +823,8 @@ export function toIndexerResultShape(
           execute_epoch: null,
           wasm_execution_points: 0n,
           native_execution_points: 0n,
-        },
+          // Decoded, like the SDK's own execute() results (the indexer type says base64 CBOR).
+        } as unknown as string,
         execution_time: { secs: 0, nanos: 0 },
         finalized_time: new Date().toISOString(),
         abort_details: null,

@@ -1,7 +1,7 @@
 {
   "manifest_version": 3,
   "name": "Sapient \u2014 Tari Ootle Wallet",
-  "version": "0.6.17",
+  "version": "0.7.0",
   "description": "Sapient: a self-custody wallet for Tari Ootle. Your seed never leaves your device \u2014 no wallet daemon required.",
   "icons": {
     "16": "icons/icon16.png",

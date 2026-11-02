@@ -1,4 +1,5 @@
 import { createWalletSeed, deserializeSeed, importWalletSeed, seedToMnemonic, serializeSeed } from "../lib/cipherSeed";
+import { decodeSubstateResponse, decodeTransactionResultResponse } from "../lib/bor";
 import { decryptVault, encryptVault } from "../lib/vault";
 import {
   addAddressBookEntry,
@@ -498,7 +499,9 @@ async function handlePageRequest(message: PageRequestMessage, sender: chrome.run
       if (!account) throw new Error("Wallet is locked.");
       const p = params as { substateId: string; version?: number | null };
       const provider = await account.getProvider();
-      return provider.getSubstate(p.substateId, p.version ?? null);
+      const response = await provider.getSubstate(p.substateId, p.version ?? null);
+      // 0.48+ indexers serve the value as base64 CBOR; dApps get the decoded JSON value as before.
+      return decodeSubstateResponse(response);
     }
 
     case "tari_getCapabilities": {
@@ -545,7 +548,7 @@ async function handlePageRequest(message: PageRequestMessage, sender: chrome.run
       if (!account) throw new Error("Wallet is locked.");
       const p = params as { transactionId: string };
       const provider = await account.getProvider();
-      return provider.getTransactionResult(p.transactionId);
+      return decodeTransactionResultResponse(await provider.getTransactionResult(p.transactionId));
     }
 
     // Deprecated (see messages.ts): a thin wrapper over createTransactionRequest +

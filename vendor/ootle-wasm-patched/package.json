@@ -1,11 +1,11 @@
 {
-  "name": "@tari-project/ootle-wasm",
+  "name": "@chironbuilder/ootle-wasm-legacy",
   "type": "module",
   "collaborators": [
     "The Tari Development Community"
   ],
-  "description": "WASM bindings for Tari Ootle client-side crypto — thin wasm-bindgen shell over ootle-wasm-core. LOCAL VENDOR PATCH: built from tari-ootle v0.42.0 (a43773e) plus two commits not in an upstream release: createConfidentialWithdrawProofLiteral (confidential.rs) and the burn_claim exports (burnClaimStealthSecret, validateBurnClaimOwnershipProof).",
-  "version": "0.42.0",
+  "description": "WASM bindings for Tari Ootle client-side crypto. LOCAL VENDOR PATCH: built from tari-ootle v0.49.2 plus chiron-0.49.2.patch (core/src/chiron.rs): createConfidentialWithdrawProofLiteral, burnClaimStealthSecret, validateBurnClaimOwnershipProof.",
+  "version": "0.49.2-chiron.1",
   "license": "BSD-3-Clause",
   "repository": {
     "type": "git",
