@@ -13,8 +13,8 @@ importers:
   .:
     dependencies:
       '@chironbuilder/ootle-sdk':
-        specifier: ^0.2.1
-        version: 0.2.1
+        specifier: ^0.2.2
+        version: 0.2.2
       '@noble/ciphers':
         specifier: ^2.2.0
         version: 2.2.0
@@ -82,8 +82,8 @@ importers:
 
 packages:
 
-  '@chironbuilder/ootle-sdk@0.2.1':
-    resolution: {integrity: sha512-xpQYGGB+XQ4VyIf1g3y+OjchZtShlFT5Zmq1ykhMk+fEGLddhAMbrjaE1HksxFFWZTu5/CE0YZd2hXZGNTZMDA==}
+  '@chironbuilder/ootle-sdk@0.2.2':
+    resolution: {integrity: sha512-81pkKWQBz04bwNBr8G7k8+lQwXawQEA2ZQo/FWVNOOeN4pPM0sn+/lrK572XNmgBwx+qTdqILO3TOJg3P8f4wA==}
 
   '@chironbuilder/ootle-wasm-legacy@file:vendor/ootle-wasm-patched':
     resolution: {directory: vendor/ootle-wasm-patched, type: directory}
@@ -1095,7 +1095,7 @@ packages:
 
 snapshots:
 
-  '@chironbuilder/ootle-sdk@0.2.1':
+  '@chironbuilder/ootle-sdk@0.2.2':
     dependencies:
       '@chironbuilder/ootle-wasm-legacy': file:vendor/ootle-wasm-patched
       '@noble/curves': 1.9.7
