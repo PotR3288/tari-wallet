@@ -24,5 +24,21 @@
   "devDependencies": {
     "typescript": "^7.0.2",
     "vitest": "^4.1.10"
+  },
+  "keywords": [
+    "x402",
+    "tari",
+    "ootle",
+    "http-payments",
+    "facilitator",
+    "wallet"
+  ],
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/chironbuilds/tari-wallet.git",
+    "directory": "packages/x402-elim"
+  },
+  "bugs": {
+    "url": "https://github.com/chironbuilds/tari-wallet/issues"
   }
 }
