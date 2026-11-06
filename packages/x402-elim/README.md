@@ -91,6 +91,22 @@ cannot pay) instead of misreporting it as malformed; garbage that merely looks l
 still fails as a parse error. The pure mapping is exported as `normalizeFoundationV2()` for
 servers and tests that want the flat quote without a fetch.
 
+## Integrator notes
+
+- **Browser-only by design.** `pay()`/`loadRecord()` persist to `localStorage`
+  directly and the wallet lives on `window.tari` — there is no Node/server guard,
+  and both fail naturally (`localStorage` undefined, `X402NoWalletError`). Do not
+  call `pay`, `signClaim`, or `settle` from server-side code. `pay402()`,
+  `validateQuote`, `normalizeFoundationV2`, and `verifyBody` are runtime-neutral.
+- **Always pass the integrity pin.** `verifyBody()` resolves `true` (no-op) when the
+  quote carries no `resourceSha256` — that absence is a facilitator configuration
+  gap, not a reason to skip the check. For paid content, treat a quote without a
+  `resourceSha256` pin as suspect and gate the body on the check either way.
+- **`facilitatorUrl` is server-controlled.** The quote (and therefore the URL the
+  signed claim is POSTed to) comes from the 402 response header. In a browser the
+  same-origin-ish threat model is ordinary; never reuse this library server-side
+  without gating `facilitatorUrl` against an allowlist first.
+
 ## Spec
 
 See [`docs/x402-facilitator.md`](../../docs/x402-facilitator.md) in the host repo for
