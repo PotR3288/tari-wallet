@@ -1,6 +1,11 @@
 // The x402 paywalled merchant service (Phase 5 e2e, Task 5.2a): a trivial HTTP server that
-// answers `GET /protected` with a 402 `PAYMENT_REQUIRED` envelope (an `X402PayTerms` quote) and
-// serves the resource only once the purchase is settled. It plays the MERCHANT: it mints the
+// answers `GET /protected` with a 402 payment-required signal and serves the resource only once
+// the purchase is settled. The wire dialect is env-selectable (X402_SERVICE_WIRE_DIALECT):
+// "v2" (default) emits the foundation x402 v2 PaymentRequired base64-encoded in the
+// PAYMENT-REQUIRED header — the spec's canonical HTTP form (specs/transports-v2/http.md), with
+// the Ootle terms as scheme-specific extra keys and no network field until the tari:* CAIP-2
+// namespace is registered; "legacy" keeps the flat quote in the JSON body for transition-period
+// regression runs. It plays the MERCHANT: it mints the
 // claim secret (preimage + hashLock), it is the party whose wallet address is the quote's
 // `claimantAddress`, and -- per docs/x402-facilitator.md's frozen settlement ordering
 // (merchant-initiated hold-then-broadcast) -- IT posts the signed claim the merchant wallet
@@ -38,6 +43,8 @@ const REFUND_EPOCH_OFFSET = Number(process.env.X402_SERVICE_REFUND_EPOCH_OFFSET 
 /** 1 = the refund scenario: settle is held, never broadcast (the "frozen facilitator" leg). */
 const FREEZE_BROADCAST = process.env.X402_SERVICE_FREEZE_BROADCAST === "1";
 const AMOUNT = process.env.X402_SERVICE_AMOUNT ?? "1000";
+/** Wire dialect for the 402 answer: "v2" (default) = base64 foundation v2 PaymentRequired in the PAYMENT-REQUIRED header; "legacy" = flat quote in the JSON body. */
+const WIRE_DIALECT = process.env.X402_SERVICE_WIRE_DIALECT ?? "v2";
 const QUOTE_TTL_MS = Number(process.env.X402_SERVICE_QUOTE_TTL_MS ?? 30 * 60 * 1000);
 const RESOURCE_BODY =
   process.env.X402_SERVICE_RESOURCE_BODY ?? "You paid for this sentence. (x402 over Tari Ootle, live esmeralda e2e)";
@@ -48,6 +55,10 @@ const TARI_RESOURCE_ADDRESS = "resource_0101010101010101010101010101010101010101
 
 if (!CLAIMANT_ADDRESS) {
   console.error("service: X402_SERVICE_CLAIMANT_ADDRESS (the merchant wallet's otl_ address) is required");
+  process.exit(1);
+}
+if (!["v2", "legacy"].includes(WIRE_DIALECT)) {
+  console.error(`service: X402_SERVICE_WIRE_DIALECT must be "v2" or "legacy" (got ${WIRE_DIALECT})`);
   process.exit(1);
 }
 
@@ -97,9 +108,12 @@ async function readBody(req) {
   return text ? JSON.parse(text) : {};
 }
 
-function respond(res, status, body) {
+function respond(res, status, body, extraHeaders = {}) {
   const json = JSON.stringify(body);
-  res.writeHead(status, { "Content-Type": "application/json", "Content-Length": Buffer.byteLength(json) });
+  res.writeHead(
+    status,
+    { "Content-Type": "application/json", "Content-Length": Buffer.byteLength(json), ...extraHeaders }
+  );
   res.end(json);
 }
 
@@ -153,7 +167,36 @@ const server = http.createServer((req, res) => {
           console.log(`service: quoted ${AMOUNT} XTR base units, refundEpoch ${quote.refundEpoch}, hashLock ${quote.hashLockHex}`);
         }
         if (!purchase.paid) {
-          respond(res, 402, { error: "PAYMENT_REQUIRED", quote: purchase.quote });
+          if (WIRE_DIALECT === "v2") {
+            // Foundation x402 v2 wire form: the PaymentRequired object rides base64-encoded in
+            // the PAYMENT-REQUIRED header; response bodies are a server implementation concern.
+            const v2 = {
+              x402Version: 2,
+              resource: { url: RESOURCE_URL },
+              accepts: [
+                {
+                  scheme: "exact",
+                  amount: AMOUNT,
+                  asset: TARI_RESOURCE_ADDRESS,
+                  payTo: CLAIMANT_ADDRESS,
+                  maxTimeoutSeconds: Math.floor(QUOTE_TTL_MS / 1000),
+                  extra: {
+                    hashLockHex: purchase.quote.hashLockHex,
+                    refundEpoch: purchase.quote.refundEpoch,
+                    facilitatorUrl: FACILITATOR_URL,
+                    expiresAt: purchase.quote.expiresAt,
+                    paymentFlow: "escrow",
+                  },
+                },
+              ],
+            };
+            respond(res, 402, { error: "PAYMENT_REQUIRED" }, {
+              "PAYMENT-REQUIRED": Buffer.from(JSON.stringify(v2), "utf8").toString("base64"),
+            });
+          } else {
+            // Legacy flat dialect (transition-period regression): the quote in the JSON body.
+            respond(res, 402, { error: "PAYMENT_REQUIRED", quote: purchase.quote });
+          }
           return;
         }
         respond(res, 200, { body: RESOURCE_BODY });
@@ -217,6 +260,6 @@ const server = http.createServer((req, res) => {
 server.listen(PORT, "127.0.0.1", () => {
   console.log(
     `x402 merchant service listening on http://127.0.0.1:${PORT} ` +
-      `(claimant ${CLAIMANT_ADDRESS.slice(0, 24)}..., refundEpoch +${REFUND_EPOCH_OFFSET}, freeze=${FREEZE_BROADCAST}, indexer ${INDEXER_URL})`
+      `(claimant ${CLAIMANT_ADDRESS.slice(0, 24)}..., refundEpoch +${REFUND_EPOCH_OFFSET}, freeze=${FREEZE_BROADCAST}, wire=${WIRE_DIALECT}, indexer ${INDEXER_URL})`
   );
 });

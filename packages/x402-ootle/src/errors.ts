@@ -31,11 +31,11 @@ export class X402QuoteParseError extends Error {
 }
 
 /**
- * The server speaks foundation x402 v2 (base64-encoded `PaymentRequired` with an
- * `accepts[]` array) — a wire dialect this library deliberately does not implement, and
- * which could not carry an Ootle payment anyway until an Ootle scheme is registered
- * upstream. Distinct from a parse error so callers can tell "incompatible protocol
- * version" apart from "garbage header".
+ * The server speaks foundation x402 v2 but the response carries no payment this library can
+ * make: either an unknown protocol version, or a v2 `PaymentRequired` whose `accepts[]` has no
+ * entry payable over Tari Ootle (needs scheme "exact", the Ootle extra keys hashLockHex /
+ * refundEpoch / facilitatorUrl, and a recognized paymentFlow). Distinct from a parse error so
+ * callers can tell "incompatible dialect" apart from "garbage header".
  */
 export class X402UnsupportedVersionError extends Error {
   readonly response: Response;
@@ -44,7 +44,7 @@ export class X402UnsupportedVersionError extends Error {
   constructor(response: Response, raw: string | null, version: number | null) {
     super(
       version === 2 || version === null
-        ? "Unsupported x402 dialect: this server answered with a foundation x402 v2 PaymentRequired (base64-encoded, accepts[]). This library implements the Tari Ootle quote dialect and no Ootle scheme can appear in a v2 server's accepts[] yet — see docs/integration/x402.md. Payment is not possible for this resource."
+        ? "Unsupported x402 dialect: this server answered with a foundation x402 v2 PaymentRequired (base64-encoded, accepts[]), but no accepts[] entry is payable over Tari Ootle — an entry needs scheme 'exact', the Ootle extra keys hashLockHex/refundEpoch/facilitatorUrl, and paymentFlow 'upfront' or 'escrow'. See docs/integration/x402.md."
         : `Unsupported x402 dialect: PaymentRequired version ${String(version)} is not implemented.`
     );
     this.name = "X402UnsupportedVersionError";

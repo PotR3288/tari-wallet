@@ -36,6 +36,8 @@ import { IndexerProvider } from "@tari-project/ootle-indexer";
 import { encipherSeed } from "../../src/lib/cipherSeed";
 import { bytesToWords } from "../../src/lib/mnemonic";
 import type { X402PayTerms } from "../../src/lib/messages";
+import { pay402 } from "../../packages/x402-ootle/src/pay402.js";
+import { X402PaymentRequired } from "../../packages/x402-ootle/src/errors.js";
 
 // ─── Configuration (env-overridable) ────────────────────────────────────────────────────────
 
@@ -53,6 +55,10 @@ const SERVICE_PORT = Number(process.env.X402_E2E_SERVICE_PORT ?? 4521 + (process
 const FACILITATOR_PORT = Number(process.env.X402_E2E_FACILITATOR_PORT ?? 4020 + (process.pid % 500));
 const INDEXER_URL = process.env.X402_E2E_INDEXER_URL ?? "https://ootle-indexer-a.tari.com";
 const NETWORK = (process.env.X402_E2E_NETWORK ?? "esmeralda") as "esmeralda" | "igor";
+// Wire dialect for the merchant service's 402 answer: "v2" (default) = base64 foundation v2
+// PaymentRequired in the PAYMENT-REQUIRED header, parsed through the client package's pay402()
+// normalization exactly as a real dApp would consume it; "legacy" = flat quote in the JSON body.
+const WIRE_DIALECT = process.env.X402_E2E_WIRE_DIALECT ?? "v2";
 // Measured live on esmeralda (2026-10-30): block time ~70s, ~80 blocks/epoch -> one epoch is
 // roughly an HOUR. The refund scenario's expiry wait is therefore bounded by the chain's own
 // cadence (the brief's "minutes, not hours" wish does not survive contact with esmeralda; the
@@ -651,15 +657,29 @@ interface Purchase {
 }
 
 async function runPurchaseLeg(payer: Wallet, merchant: Wallet, payerPage: Page, merchantPage: Page, merchantViewKeyHex: string): Promise<Purchase> {
-  // 1. The dApp fetch hits the paywall.
-  const response402 = await payerPage.evaluate(async () => {
-    const res = await fetch("/protected");
-    return { status: res.status, body: await res.json() };
-  });
-  assert(response402.status === 402, `dApp fetch answered 402 PAYMENT-REQUIRED (got ${response402.status})`);
-  assert(response402.body.error === "PAYMENT_REQUIRED", "402 body carries error=PAYMENT_REQUIRED");
-  const quote = response402.body.quote as X402PayTerms;
-  log(`quote: ${JSON.stringify(quote)}`);
+  // 1. The dApp fetch hits the paywall; the quote is parsed through the CLIENT PACKAGE's own
+  //    wire path (pay402 -> base64 decode -> v2 detection -> Ootle entry normalization), exactly
+  //    as a real dApp would consume it — not by reading a harness-side JSON body.
+  let quote: X402PayTerms;
+  if (WIRE_DIALECT === "v2") {
+    const wrapped = pay402(fetch);
+    try {
+      await wrapped(`${SERVICE_URL}/protected`);
+      throw new Error("expected the dApp fetch to be rejected with a 402 payment-required");
+    } catch (e) {
+      assert(e instanceof X402PaymentRequired, `dApp fetch answered 402 PAYMENT-REQUIRED (got ${String(e)})`);
+      quote = e.quote as unknown as X402PayTerms;
+    }
+  } else {
+    const response402 = await payerPage.evaluate(async () => {
+      const res = await fetch("/protected");
+      return { status: res.status, body: await res.json() };
+    });
+    assert(response402.status === 402, `dApp fetch answered 402 PAYMENT-REQUIRED (got ${response402.status})`);
+    assert(response402.body.error === "PAYMENT_REQUIRED", "402 body carries error=PAYMENT_REQUIRED");
+    quote = response402.body.quote as X402PayTerms;
+  }
+  log(`quote (${WIRE_DIALECT} dialect): ${JSON.stringify(quote)}`);
 
   // 2. The paying wallet funds the HTLC -- with a REAL popup approval click.
   const fund = await requestWithApproval(payer, payerPage, { kind: "x402Pay", ...quote }, "x402Pay (htlcFund)");
@@ -749,6 +769,7 @@ async function scenarioHappy(seedIndex: number, payerInfo: SeedInfo, merchantInf
     X402_INDEXER_URL: INDEXER_URL,
     X402_FACILITATOR_URL: FACILITATOR_URL,
     X402_SERVICE_FREEZE_BROADCAST: "0",
+    X402_SERVICE_WIRE_DIALECT: WIRE_DIALECT,
     X402_SERVICE_REFUND_EPOCH_OFFSET: String(HAPPY_REFUND_EPOCHS),
   });
   try {
@@ -816,6 +837,7 @@ async function scenarioRefund(seedIndex: number, payerInfo: SeedInfo, merchantIn
     X402_INDEXER_URL: INDEXER_URL,
     X402_FACILITATOR_URL: FACILITATOR_URL,
     X402_SERVICE_FREEZE_BROADCAST: "1", // the freeze: held, never broadcast
+    X402_SERVICE_WIRE_DIALECT: WIRE_DIALECT,
     X402_SERVICE_REFUND_EPOCH_OFFSET: String(REFUND_REFUND_EPOCHS),
   });
   try {

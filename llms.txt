@@ -39,9 +39,12 @@ hashLockHex (64-hex SHA-256 of the claim secret), refundEpoch, facilitatorUrl,
 facilitatorPubKeyHex?, expiresAt (ms), maxFee?. The refund leaf is AfterEpoch(refundEpoch)
 and is STRICT: spendable at refundEpoch + 1, not at refundEpoch. The claim leaf is
 BeforeEpoch(refundEpoch), so the quote convention is validUntilEpoch = refundEpoch − 1.
-Foundation x402 v2 responses (base64 PaymentRequired with accepts[]) are DETECTED and
-rejected with X402UnsupportedVersionError — deliberate non-interop until an Ootle scheme
-spec is approved upstream.
+Foundation x402 v2 responses (base64 PaymentRequired with accepts[]) are PARSED when they
+carry a payable Ootle entry: pay402() decodes the base64 header, selects the accepts[] entry
+with scheme "exact" + the Ootle extra keys (hashLockHex/refundEpoch/facilitatorUrl) and a
+recognized paymentFlow ("upfront"/"escrow"), and normalizes it onto the flat envelope — so a
+v2 server that emits the Ootle terms in extra is fully payable. A v2 response with no such
+entry still throws X402UnsupportedVersionError (spec §6.1: skip entries you cannot pay).
 
 ## Settlement ordering (merchant-initiated hold-then-broadcast)
 

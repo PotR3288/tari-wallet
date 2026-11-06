@@ -77,10 +77,19 @@ Errors are one distinct class per rejection cause (`X402PaymentRequired`,
 `X402QuoteParseError`, `X402UnsupportedVersionError`, `X402WalletError`,
 `X402NoWalletError`, `X402IncompleteResultError`, `X402SettlementExpired`,
 `X402MissingOutputMaskError`) — never a shared "invalid request" bucket.
-`X402UnsupportedVersionError` is thrown when a server answers with a foundation x402 v2
-`PaymentRequired` (base64-encoded, `accepts[]`): the Ootle dialect is deliberately not
-v2-wire-compatible, and no Ootle scheme can appear in a v2 server's `accepts[]` yet, so
-the error says so instead of misreporting the header as malformed.
+Foundation x402 v2 interop (Phase A wire conformance): when a 402 carries a base64-encoded
+foundation v2 `PaymentRequired`, `pay402()` decodes it and normalizes any payable Ootle entry
+onto the flat envelope — an entry is payable when it has `scheme: "exact"`, the Ootle `extra`
+keys (`hashLockHex`, `refundEpoch`, `facilitatorUrl`), and a recognized `paymentFlow`
+(`upfront` or `escrow`). The mapping is top-level `resource.url` → `resourceUrl`;
+`accepts[i].{amount,asset,payTo}` → `{amount,resourceAddress,claimantAddress}`; the Ootle
+terms — including the absolute-ms `expiresAt`, which rides in `extra` and is NOT derived from
+v2's relative `maxTimeoutSeconds` — map straight across. v2 adds one strictness the flat
+dialect leaves to the wallet: `payTo` must be an `otl_…` address. A v2 response with no
+payable entry throws `X402UnsupportedVersionError` (spec §6.1: clients skip entries they
+cannot pay) instead of misreporting it as malformed; garbage that merely looks like base64
+still fails as a parse error. The pure mapping is exported as `normalizeFoundationV2()` for
+servers and tests that want the flat quote without a fetch.
 
 ## Spec
 

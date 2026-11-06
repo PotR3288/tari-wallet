@@ -1,4 +1,4 @@
-export { pay402, validateQuote } from "./pay402.js";
+export { pay402, validateQuote, normalizeFoundationV2 } from "./pay402.js";
 export { hasTari, pay, signClaim, loadRecord, storageKey } from "./pay.js";
 export type { StoredRecord, X402SignClaimParams } from "./pay.js";
 export { settle, settleUrl, settlementUrl } from "./settle.js";
