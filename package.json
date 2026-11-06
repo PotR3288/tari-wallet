@@ -35,6 +35,8 @@
     "@crxjs/vite-plugin": "^2.7.1",
     "@noble/curves": "^2.4.0",
     "@types/chrome": "^0.2.2",
+    "@types/node": "^26.6.6",
+    "cbor": "^10.0.12",
     "playwright": "^1.64.1",
     "tsx": "^4.23.1",
     "typescript": "^7.0.2",

@@ -46,7 +46,7 @@ import {
   toOotleNetwork,
 } from "@chironbuilder/ootle-sdk";
 import type { NetworkName } from "@chironbuilder/ootle-sdk";
-import { decryptOwnedUtxo, stealthUtxoSubstateId, WasmStealthCrypto } from "@tari-project/ootle";
+import { decodeSubstateValue, decryptOwnedUtxo, stealthUtxoSubstateId, WasmStealthCrypto } from "@tari-project/ootle";
 import { IndexerProvider } from "@tari-project/ootle-indexer";
 import type { DecryptedData } from "@tari-project/ootle";
 import type {
@@ -345,7 +345,10 @@ export class X402Facilitator {
     if (substate.state !== null && typeof substate.state === "object" && !("up" in substate.state)) {
       throw new SettlementError("OUTPUT_SPENT", `The HTLC output at commitment ${req.htlcOutputCommitmentHex} has already been spent.`);
     }
-    const upBody = (substate.state as { up: { substate: unknown } }).up?.substate;
+    const upRaw = (substate.state as { up: { substate: unknown } }).up?.substate;
+    // The 0.48+ indexer serves substate values as base64-CBOR strings; findScriptRoot only walks
+    // decoded objects, so decode first when the raw wire shape arrives.
+    const upBody = typeof upRaw === "string" ? decodeSubstateValue(upRaw) : upRaw;
 
     // Checklist gate 4: the relayed tree's root equals the on-chain root on the output, and
     // the tree is bound to the quote's hashLockHex (checked above via describeHtlcConditions).

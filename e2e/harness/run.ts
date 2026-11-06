@@ -462,25 +462,41 @@ async function discoverAndUnshieldInbound(wallet: Wallet, dappPage: Page): Promi
 async function relayFromPayer(
   payer: Wallet, payerPage: Page, target: Wallet, targetAddress: string, dappPage: Page
 ): Promise<boolean> {
-  log(`${target.name}: relaying 20000000 private XTR from ${payer.name}`);
+  // The sender's private balance may be below the full relay amount (chained relays drain it).
+  // On a balance rejection, cap to what the sender actually holds minus a fee buffer and retry once.
   let result: any;
-  try {
-    result = await requestWithApproval(
-      payer,
-      payerPage,
-      {
-        kind: "sendPrivately",
-        resourceAddress: TARI_RESOURCE_ADDRESS,
-        recipientWalletAddress: targetAddress,
-        amount: "20000000",
-        feeType: "private",
-        enforceFeeType: true,
-      },
-      "sendPrivately (in-harness funding relay)"
-    );
-  } catch (e) {
-    log(`${target.name}: relay send failed: ${e instanceof Error ? e.message.split("\n")[0] : e}`);
-    return false;
+  let amount = "20000000";
+  for (let attempt = 1; ; attempt++) {
+    try {
+      log(`${target.name}: relaying ${amount} private XTR from ${payer.name}`);
+      result = await requestWithApproval(
+        payer,
+        payerPage,
+        {
+          kind: "sendPrivately",
+          resourceAddress: TARI_RESOURCE_ADDRESS,
+          recipientWalletAddress: targetAddress,
+          amount,
+          feeType: "private",
+          enforceFeeType: true,
+        },
+        "sendPrivately (in-harness funding relay)"
+      );
+      break;
+    } catch (e) {
+      const msg = e instanceof Error ? e.message : String(e);
+      const m = /you have (\d+)/.exec(msg);
+      if (m && attempt === 1) {
+        const capped = BigInt(m[1]) - 2_000_000n; // fee buffer for the private-fee lane
+        if (capped >= 2_000_000n) {
+          log(`${target.name}: sender holds only ${m[1]} -- capping relay to ${capped} and retrying`);
+          amount = capped.toString();
+          continue;
+        }
+      }
+      log(`${target.name}: relay send failed: ${msg.split("\n")[0]}`);
+      return false;
+    }
   }
   const commitment: string | undefined = result?.recipientCommitment ?? result?.recipient_commitment;
   if (!commitment) {

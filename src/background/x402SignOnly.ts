@@ -32,6 +32,7 @@ import type { HtlcExpectations } from "@chironbuilder/ootle-sdk";
 import {
   TransactionBuilder,
   WasmStealthCrypto,
+  decryptInputData,
   decryptOwnedUtxo,
   getVaultIdsForAccount,
   resolveMaxEpoch,
@@ -284,6 +285,46 @@ function canonicalizeRelayedConditions(conditions: object[]): object[] | null {
   }
 }
 
+/**
+ * `decryptOwnedUtxo` for a substate response in either shape: the raw 0.48+ indexer response
+ * (`state.up.substate` is a base64 CBOR string) goes to upstream's WASM decoder; an already-decoded
+ * object (test fixtures, older JSON indexers) is unpacked and decrypted directly via
+ * `decryptInputData`. Mirrors the @chironbuilder/ootle-sdk wrapper of the same name. Returns null
+ * when the UTXO isn't a live, unfrozen stealth output of this view key.
+ */
+async function decryptOwnedUtxoEither(
+  crypto: WasmStealthCrypto,
+  viewSecret: Uint8Array,
+  substate: unknown,
+  substateId: string
+): Promise<Awaited<ReturnType<typeof decryptOwnedUtxo>>> {
+  const r = substate as { state?: { up?: { substate?: unknown } }; substate?: unknown };
+  const value = r?.state?.up?.substate ?? r?.substate;
+  if (typeof value === "string" || value === undefined) {
+    // Upstream throws on structurally invalid or cryptographically undecryptable values (0.12);
+    // the module's own error messages assume the 0.10 contract of null, so normalize here.
+    try {
+      return await decryptOwnedUtxo(crypto, viewSecret, substate as never, substateId);
+    } catch {
+      return null;
+    }
+  }
+  const utxo = (value as { Utxo?: { output?: { output?: { public_nonce: string; encrypted_data: string } }; is_frozen?: boolean } }).Utxo;
+  const body = utxo?.output?.output;
+  if (!body || !utxo.output || utxo.is_frozen) return null;
+  const commitment = substateId.split("_").pop() ?? "";
+  if (!/^[0-9a-f]{64}$/i.test(commitment)) return null;
+  try {
+    return await decryptInputData(crypto, fromHex(commitment), fromHex(body.encrypted_data), {
+      senderPublicNonce: fromHex(body.public_nonce),
+      viewSecret,
+      skipMemo: false,
+    });
+  } catch {
+    return null;
+  }
+}
+
 export async function buildSignedX402Claim(
   account: X402ClaimSignerAccount,
   operation: X402SignClaimOperation
@@ -320,7 +361,7 @@ export async function buildSignedX402Claim(
     throw new Error(`x402SignClaim: the funded HTLC does not match the quote — ${verification.problems.join("; ")}`);
   }
   const substateId = stealthUtxoSubstateId(envelope.resourceAddress, fromHex(htlcOutputCommitmentHex));
-  const decrypted = await decryptOwnedUtxo(
+  const decrypted = await decryptOwnedUtxoEither(
     new WasmStealthCrypto(account.network),
     await account.signer.getViewSecret(),
     (await chain.getSubstate(substateId)) as IndexerGetSubstateResponse,

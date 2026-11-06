@@ -6,15 +6,15 @@ settings:
 
 overrides:
   uuid: ^11.1.1
-  '@tari-project/ootle-ts-bindings': ^1.62.0
+  '@tari-project/ootle-ts-bindings': ^1.60.0
 
 importers:
 
   .:
     dependencies:
       '@chironbuilder/ootle-sdk':
-        specifier: ^0.3.0
-        version: 0.3.0
+        specifier: ^0.2.2
+        version: 0.2.2
       '@noble/ciphers':
         specifier: ^2.2.0
         version: 2.2.0
@@ -22,26 +22,26 @@ importers:
         specifier: ^2.2.0
         version: 2.2.0
       '@tari-project/ootle':
-        specifier: ^0.14.0
-        version: 0.14.0
+        specifier: ^0.12.0
+        version: 0.12.0
       '@tari-project/ootle-indexer':
-        specifier: ^0.14.0
-        version: 0.14.0
+        specifier: ^0.12.0
+        version: 0.12.0
       '@tari-project/ootle-secret-key-wallet':
-        specifier: ^0.14.0
-        version: 0.14.0
+        specifier: ^0.12.0
+        version: 0.12.0
       '@tari-project/ootle-ts-bindings':
-        specifier: ^1.62.0
-        version: 1.62.0
+        specifier: ^1.60.0
+        version: 1.60.0
       '@tari-project/ootle-wallet-daemon-signer':
-        specifier: ^0.14.0
-        version: 0.14.0
+        specifier: ^0.12.0
+        version: 0.12.0
       '@tari-project/ootle-wasm':
-        specifier: ^0.50.1
-        version: 0.50.1
+        specifier: ^0.49.2
+        version: 0.49.2
       '@tari-project/ootle-wasm-bor':
-        specifier: ^0.50.1
-        version: 0.50.1
+        specifier: ^0.49.2
+        version: 0.49.2
       hash-wasm:
         specifier: ^4.12.0
         version: 4.12.0
@@ -51,16 +51,22 @@ importers:
     devDependencies:
       '@chironbuilder/ootle-wasm-legacy':
         specifier: file:vendor/ootle-wasm-patched
-        version: file:vendor/ootle-wasm-patched
+        version: '@tari-project/ootle-wasm@file:vendor/ootle-wasm-patched'
       '@crxjs/vite-plugin':
         specifier: ^2.7.1
-        version: 2.7.1(vite@8.1.5(esbuild@0.28.1)(tsx@4.23.1))
+        version: 2.7.1(vite@8.1.5(@types/node@26.6.6)(esbuild@0.28.1)(tsx@4.23.1))
       '@noble/curves':
         specifier: ^2.4.0
         version: 2.4.0
       '@types/chrome':
         specifier: ^0.2.2
         version: 0.2.2
+      '@types/node':
+        specifier: ^26.6.6
+        version: 26.6.6
+      cbor:
+        specifier: ^10.0.12
+        version: 10.0.12
       playwright:
         specifier: ^1.64.1
         version: 1.64.1
@@ -72,16 +78,16 @@ importers:
         version: 7.0.2
       vite:
         specifier: ^8.1.5
-        version: 8.1.5(esbuild@0.28.1)(tsx@4.23.1)
+        version: 8.1.5(@types/node@26.6.6)(esbuild@0.28.1)(tsx@4.23.1)
       vite-plugin-top-level-await:
         specifier: ^1.6.0
-        version: 1.6.0(rollup@2.80.0)(vite@8.1.5(esbuild@0.28.1)(tsx@4.23.1))
+        version: 1.6.0(rollup@2.80.0)(vite@8.1.5(@types/node@26.6.6)(esbuild@0.28.1)(tsx@4.23.1))
       vite-plugin-wasm:
         specifier: ^3.6.0
-        version: 3.6.0(vite@8.1.5(esbuild@0.28.1)(tsx@4.23.1))
+        version: 3.6.0(vite@8.1.5(@types/node@26.6.6)(esbuild@0.28.1)(tsx@4.23.1))
       vitest:
         specifier: ^4.1.10
-        version: 4.1.10(vite@8.1.5(esbuild@0.28.1)(tsx@4.23.1))
+        version: 4.1.10(@types/node@26.6.6)(vite@8.1.5(@types/node@26.6.6)(esbuild@0.28.1)(tsx@4.23.1))
 
   packages/x402-ootle:
     devDependencies:
@@ -90,15 +96,12 @@ importers:
         version: 7.0.2
       vitest:
         specifier: ^4.1.10
-        version: 4.1.10(vite@8.1.5(esbuild@0.28.1)(tsx@4.23.1))
+        version: 4.1.10(@types/node@26.6.6)(vite@8.1.5(@types/node@26.6.6)(esbuild@0.28.1)(tsx@4.23.1))
 
 packages:
 
-  '@chironbuilder/ootle-sdk@0.3.0':
-    resolution: {integrity: sha512-5OSr66FCFHuP1gALZ6Gu8H5RlhwfSyCuAapFwjA5+9At0qyfuYUEjpwg8Ou/faS85YqUMyLVqwqmsA0PHBW5og==}
-
-  '@chironbuilder/ootle-wasm-legacy@file:vendor/ootle-wasm-patched':
-    resolution: {directory: vendor/ootle-wasm-patched, type: directory}
+  '@chironbuilder/ootle-sdk@0.2.2':
+    resolution: {integrity: sha512-81pkKWQBz04bwNBr8G7k8+lQwXawQEA2ZQo/FWVNOOeN4pPM0sn+/lrK572XNmgBwx+qTdqILO3TOJg3P8f4wA==}
 
   '@crxjs/vite-plugin@2.7.1':
     resolution: {integrity: sha512-mn77Lc1ilIvbO7ZqijjNy+AnRgc8srkfHOtV6HrGrYZgRe8YI3aIcSjHJCU5Kq75SejEZGrdAoHdn3gBGeKpEA==}
@@ -515,26 +518,29 @@ packages:
   '@tari-project/indexer-client@1.13.0':
     resolution: {integrity: sha512-lBTfIziZivVlzBR/83Oi+R5rXiuvuXKkxkraTC68qHs+7yxLWMrZvo61MesuL79ylR9GY614eo3E/cNzr58xhw==}
 
-  '@tari-project/ootle-indexer@0.14.0':
-    resolution: {integrity: sha512-54TBi25PYnU/kISnM/AY74AINiWUrveoC8xOGlFSn/cF12FTk3jkgulEnuXrPXlvV9L6kaMNVfpp/x3rIvJUyA==}
+  '@tari-project/ootle-indexer@0.12.0':
+    resolution: {integrity: sha512-9zMCVrf08XOrXQ011x2Caq3AmyCEnyNRul0IY2+odTOE6HUg9GwVssi9sav3fJuDqc696+eX5YOStLCE8MpeOA==}
 
-  '@tari-project/ootle-secret-key-wallet@0.14.0':
-    resolution: {integrity: sha512-f5W1yJz1xtkkmsdWjMl47cRS6I+Cpitw5gh6elhWcgDeroDpcL9y17rF/YVKpKr7VTbctwpCr9honb6+hAUjwQ==}
+  '@tari-project/ootle-secret-key-wallet@0.12.0':
+    resolution: {integrity: sha512-8tA6RNmaCR1jMmGZX8rdwNXUQVHVPbhBZg9jSRLqlUYMonC2b0qgJ23l2DnwcNo3mlLripumjSsnnFHiQX3l2Q==}
 
-  '@tari-project/ootle-ts-bindings@1.62.0':
-    resolution: {integrity: sha512-EXkr1EfMGcNDV6miaIIA7PDGVXE0pvOd2bT6lt8g3SjFdmnhAqp67dutffcmrnNUeWPUfFybLR6eDtaoRFjguQ==}
+  '@tari-project/ootle-ts-bindings@1.60.0':
+    resolution: {integrity: sha512-FczJVEA2rmSCYg/Y8xqef0SiZXBILoMxyuw1FsII64DNnifdfT4A9wpnjdzoQcRU4Q3kL0edlhy1uGSK6XEEFA==}
 
-  '@tari-project/ootle-wallet-daemon-signer@0.14.0':
-    resolution: {integrity: sha512-ELQXIOIBXB6tcXqG+8FUrhpCZEZ3TrlW0GA9DAegTh1xnBpg8+Ax/0k3Q+kAn/ky/+YG40qGMjcrgoJaCUJ4cw==}
+  '@tari-project/ootle-wallet-daemon-signer@0.12.0':
+    resolution: {integrity: sha512-rY94pxlzQa+yLu3FDB+THsGSCcPl2PKxjaB85Fx0Fmn7mz+stzUs7xydKqQkZnAEed49Ro9sdmZhgYVoV//NWQ==}
 
-  '@tari-project/ootle-wasm-bor@0.50.1':
-    resolution: {integrity: sha512-WgML4CzquynwuRd/vlDEvOdmEQ/X0cyq0dsNBkoZ3JHTUqOoIb8XMxjIX158dmmo54wCKR/adsSlPuXWIS9m9w==}
+  '@tari-project/ootle-wasm-bor@0.49.2':
+    resolution: {integrity: sha512-aiOyioEvUCp8ezlrvFAN3KwtoZxM5jmUyp35DeuzTNaBRfMD/PgGSjZyDAbEwxF8QExu+vfQztCMA+zJOfFBhQ==}
 
-  '@tari-project/ootle-wasm@0.50.1':
-    resolution: {integrity: sha512-zZRGtjcQX6/ck3yeg1pKvbpfN0pzx3HU0jwlY6O9/hwhaUo9QNy/L91EpQG517As4d06jQu8WS6dvDiNIzQhvQ==}
+  '@tari-project/ootle-wasm@0.49.2':
+    resolution: {integrity: sha512-vVN7ipbNchVFQWgO3TxAhoiWVPF0R08UeZV6tjFHDQRjTSu88D9YSAIckqHK6cNyGyLQIbzBFIocbcBziIndjQ==}
 
-  '@tari-project/ootle@0.14.0':
-    resolution: {integrity: sha512-hI7/grsr1SsptYVkRrgmlENYSyqFGf0vHyYatfgV4N80LdoOZ12djxNkjLeA7ruaRGPV760YcPldeCEbBq1xDg==}
+  '@tari-project/ootle-wasm@file:vendor/ootle-wasm-patched':
+    resolution: {directory: vendor/ootle-wasm-patched, type: directory}
+
+  '@tari-project/ootle@0.12.0':
+    resolution: {integrity: sha512-72kd6B+biicuWdDvpVkMuxdG/1M8bOQP08K2lGevvOj3WHFWPmrD0GXQqaywOxu3PJSg8CgPFbUfao8Q6Zomsw==}
 
   '@tari-project/wallet_jrpc_client@1.28.0':
     resolution: {integrity: sha512-FF2SEcTjabkXlkFYe0WS06JJ8Y0kPrvsJXf6fun06JG5Kwnp8BqSjHzsQKMDgKXj0kPTXWLPuTb4E9HpEAmtvQ==}
@@ -562,6 +568,9 @@ packages:
 
   '@types/har-format@1.2.16':
     resolution: {integrity: sha512-fluxdy7ryD3MV6h8pTfTYpy/xQzCFC7m89nOH9y94cNqJ1mDIDPut7MnRHI3F6qRmh/cT2fUjG1MLdCNb4hE9A==}
+
+  '@types/node@26.6.6':
+    resolution: {integrity: sha512-MzQj+8Kx3XI40OmUAE6Qoh58ZMNstNNMwn2nfd3qWsfe7nDNSqJNzes4njhz6AHwrSHOffSLwXU6yb474Q4aog==}
 
   '@typescript/typescript-aix-ppc64@7.0.2':
     resolution: {integrity: sha512-MTKKkWB7p/0E9xi1d1tHtZ5PiLkGEMIq88pK2CubZjOsLtYTLqhgIgi6zepFa+9GHZ6h05NMCkQxGKiPXMxXtQ==}
@@ -733,6 +742,10 @@ packages:
 
   boolbase@1.0.0:
     resolution: {integrity: sha512-JZOSA7Mo9sNGB8+UjSgzdLtokWAky1zbztM3WRLCbZ70/3cTANmQmOdR7y2g+J0e2WXywy1yS468tY+IruqEww==}
+
+  cbor@10.0.12:
+    resolution: {integrity: sha512-exQDevYd7ZQLP4moMQcZkKCVZsXLAtUSflObr3xTh4xzFIv/xBCdvCd6L259kQOUP2kcTC0jvC6PpZIf/WmRXA==}
+    engines: {node: '>=20'}
 
   chai@6.2.2:
     resolution: {integrity: sha512-NUPRluOfOiTKBKvWPtSD4PhFvWCqOi0BGStNWs57X9js7XGTprSmFoz5F0tWhR4WPjNeR9jXqdC7/UpSJTnlRg==}
@@ -920,6 +933,10 @@ packages:
   node-html-parser@7.1.0:
     resolution: {integrity: sha512-iJo8b2uYGT40Y8BTyy5ufL6IVbN8rbm/1QK2xffXU/1a/v3AAa0d1YAoqBNYqaS4R/HajkWIpIfdE6KcyFh1AQ==}
 
+  nofilter@3.1.0:
+    resolution: {integrity: sha512-l2NNj07e9afPnhAhvgVrCD/oy2Ai1yfLpuo3EpiO1jFTsB4sFz6oIfAfSZyQzVpkZQ9xS8ZS5g1jCBgq4Hwo0g==}
+    engines: {node: '>=12.19'}
+
   nth-check@2.1.1:
     resolution: {integrity: sha512-lqjrjmaOoAnWfMmBPL+XNnynZh2+swxiX3WUE0s4yEHI6m+AwrK2UZOimIRl3X/4QctVqS8AiZjFqyOGrMXb/w==}
 
@@ -1007,6 +1024,9 @@ packages:
     resolution: {integrity: sha512-8FYau96o3NKOhbjKi/qNvG/W5jhzxkbdm5sj9AbZ/5T5sWqn3hJgLfGx27sRKZWTvyzCP8dLRBTf5tBTSRVUNA==}
     engines: {node: '>=16.20.0'}
     hasBin: true
+
+  undici-types@8.9.0:
+    resolution: {integrity: sha512-KTDyRTYX8sWmKXAikPHHSyc63CRPETMctyjKFupcC6OBLXT3xsN0e9aF7m+mIXutFWpUXuedtowG7iLOzp0kQg==}
 
   universalify@2.0.1:
     resolution: {integrity: sha512-gptHNQghINnc/vTGIk0SOFGFNXw7JVrlRUtConJRlvaw6DuX0wO5Jeko9sWrMBhh+PsYAZ7oXAiOnf/UKogyiw==}
@@ -1117,21 +1137,19 @@ packages:
 
 snapshots:
 
-  '@chironbuilder/ootle-sdk@0.3.0':
+  '@chironbuilder/ootle-sdk@0.2.2':
     dependencies:
-      '@chironbuilder/ootle-wasm-legacy': file:vendor/ootle-wasm-patched
+      '@chironbuilder/ootle-wasm-legacy': '@tari-project/ootle-wasm@file:vendor/ootle-wasm-patched'
       '@noble/curves': 1.9.7
       '@noble/hashes': 2.4.0
-      '@tari-project/ootle': 0.14.0
-      '@tari-project/ootle-indexer': 0.14.0
-      '@tari-project/ootle-secret-key-wallet': 0.14.0
-      '@tari-project/ootle-ts-bindings': 1.62.0
-      '@tari-project/ootle-wasm': 0.50.1
-      '@tari-project/ootle-wasm-bor': 0.50.1
+      '@tari-project/ootle': 0.12.0
+      '@tari-project/ootle-indexer': 0.12.0
+      '@tari-project/ootle-secret-key-wallet': 0.12.0
+      '@tari-project/ootle-ts-bindings': 1.60.0
+      '@tari-project/ootle-wasm': 0.49.2
+      '@tari-project/ootle-wasm-bor': 0.49.2
 
-  '@chironbuilder/ootle-wasm-legacy@file:vendor/ootle-wasm-patched': {}
-
-  '@crxjs/vite-plugin@2.7.1(vite@8.1.5(esbuild@0.28.1)(tsx@4.23.1))':
+  '@crxjs/vite-plugin@2.7.1(vite@8.1.5(@types/node@26.6.6)(esbuild@0.28.1)(tsx@4.23.1))':
     dependencies:
       '@webcomponents/custom-elements': 1.6.0
       acorn-walk: 8.3.5
@@ -1147,7 +1165,7 @@ snapshots:
       rollup: 2.80.0
       rxjs: 7.5.7
       tinyglobby: 0.2.17
-      vite: 8.1.5(esbuild@0.28.1)(tsx@4.23.1)
+      vite: 8.1.5(@types/node@26.6.6)(esbuild@0.28.1)(tsx@4.23.1)
     transitivePeerDependencies:
       - supports-color
 
@@ -1393,43 +1411,45 @@ snapshots:
 
   '@tari-project/indexer-client@1.13.0':
     dependencies:
-      '@tari-project/ootle-ts-bindings': 1.62.0
+      '@tari-project/ootle-ts-bindings': 1.60.0
 
-  '@tari-project/ootle-indexer@0.14.0':
+  '@tari-project/ootle-indexer@0.12.0':
     dependencies:
       '@tari-project/indexer-client': 1.13.0
-      '@tari-project/ootle': 0.14.0
-      '@tari-project/ootle-ts-bindings': 1.62.0
+      '@tari-project/ootle': 0.12.0
+      '@tari-project/ootle-ts-bindings': 1.60.0
 
-  '@tari-project/ootle-secret-key-wallet@0.14.0':
+  '@tari-project/ootle-secret-key-wallet@0.12.0':
     dependencies:
-      '@tari-project/ootle': 0.14.0
-      '@tari-project/ootle-ts-bindings': 1.62.0
-      '@tari-project/ootle-wasm': 0.50.1
+      '@tari-project/ootle': 0.12.0
+      '@tari-project/ootle-ts-bindings': 1.60.0
+      '@tari-project/ootle-wasm': 0.49.2
 
-  '@tari-project/ootle-ts-bindings@1.62.0':
+  '@tari-project/ootle-ts-bindings@1.60.0':
     dependencies:
       bech32: 2.0.0
 
-  '@tari-project/ootle-wallet-daemon-signer@0.14.0':
+  '@tari-project/ootle-wallet-daemon-signer@0.12.0':
     dependencies:
-      '@tari-project/ootle': 0.14.0
-      '@tari-project/ootle-ts-bindings': 1.62.0
+      '@tari-project/ootle': 0.12.0
+      '@tari-project/ootle-ts-bindings': 1.60.0
       '@tari-project/wallet_jrpc_client': 1.28.0
 
-  '@tari-project/ootle-wasm-bor@0.50.1': {}
+  '@tari-project/ootle-wasm-bor@0.49.2': {}
 
-  '@tari-project/ootle-wasm@0.50.1': {}
+  '@tari-project/ootle-wasm@0.49.2': {}
 
-  '@tari-project/ootle@0.14.0':
+  '@tari-project/ootle-wasm@file:vendor/ootle-wasm-patched': {}
+
+  '@tari-project/ootle@0.12.0':
     dependencies:
-      '@tari-project/ootle-ts-bindings': 1.62.0
-      '@tari-project/ootle-wasm': 0.50.1
-      '@tari-project/ootle-wasm-bor': 0.50.1
+      '@tari-project/ootle-ts-bindings': 1.60.0
+      '@tari-project/ootle-wasm': 0.49.2
+      '@tari-project/ootle-wasm-bor': 0.49.2
 
   '@tari-project/wallet_jrpc_client@1.28.0':
     dependencies:
-      '@tari-project/ootle-ts-bindings': 1.62.0
+      '@tari-project/ootle-ts-bindings': 1.60.0
 
   '@tybys/wasm-util@0.10.3':
     dependencies:
@@ -1457,6 +1477,10 @@ snapshots:
   '@types/filewriter@0.0.33': {}
 
   '@types/har-format@1.2.16': {}
+
+  '@types/node@26.6.6':
+    dependencies:
+      undici-types: 8.9.0
 
   '@typescript/typescript-aix-ppc64@7.0.2':
     optional: true
@@ -1527,13 +1551,13 @@ snapshots:
       chai: 6.2.2
       tinyrainbow: 3.1.0
 
-  '@vitest/mocker@4.1.10(vite@8.1.5(esbuild@0.28.1)(tsx@4.23.1))':
+  '@vitest/mocker@4.1.10(vite@8.1.5(@types/node@26.6.6)(esbuild@0.28.1)(tsx@4.23.1))':
     dependencies:
       '@vitest/spy': 4.1.10
       estree-walker: 3.0.3
       magic-string: 0.30.21
     optionalDependencies:
-      vite: 8.1.5(esbuild@0.28.1)(tsx@4.23.1)
+      vite: 8.1.5(@types/node@26.6.6)(esbuild@0.28.1)(tsx@4.23.1)
 
   '@vitest/pretty-format@4.1.10':
     dependencies:
@@ -1572,6 +1596,10 @@ snapshots:
   bech32@2.0.0: {}
 
   boolbase@1.0.0: {}
+
+  cbor@10.0.12:
+    dependencies:
+      nofilter: 3.1.0
 
   chai@6.2.2: {}
 
@@ -1741,6 +1769,8 @@ snapshots:
       css-select: 5.2.2
       he: 1.2.0
 
+  nofilter@3.1.0: {}
+
   nth-check@2.1.1:
     dependencies:
       boolbase: 1.0.0
@@ -1846,26 +1876,28 @@ snapshots:
       '@typescript/typescript-win32-arm64': 7.0.2
       '@typescript/typescript-win32-x64': 7.0.2
 
+  undici-types@8.9.0: {}
+
   universalify@2.0.1: {}
 
   uuid@11.1.1: {}
 
-  vite-plugin-top-level-await@1.6.0(rollup@2.80.0)(vite@8.1.5(esbuild@0.28.1)(tsx@4.23.1)):
+  vite-plugin-top-level-await@1.6.0(rollup@2.80.0)(vite@8.1.5(@types/node@26.6.6)(esbuild@0.28.1)(tsx@4.23.1)):
     dependencies:
       '@rollup/plugin-virtual': 3.0.2(rollup@2.80.0)
       '@swc/core': 1.15.46
       '@swc/wasm': 1.15.46
       uuid: 11.1.1
-      vite: 8.1.5(esbuild@0.28.1)(tsx@4.23.1)
+      vite: 8.1.5(@types/node@26.6.6)(esbuild@0.28.1)(tsx@4.23.1)
     transitivePeerDependencies:
       - '@swc/helpers'
       - rollup
 
-  vite-plugin-wasm@3.6.0(vite@8.1.5(esbuild@0.28.1)(tsx@4.23.1)):
+  vite-plugin-wasm@3.6.0(vite@8.1.5(@types/node@26.6.6)(esbuild@0.28.1)(tsx@4.23.1)):
     dependencies:
-      vite: 8.1.5(esbuild@0.28.1)(tsx@4.23.1)
+      vite: 8.1.5(@types/node@26.6.6)(esbuild@0.28.1)(tsx@4.23.1)
 
-  vite@8.1.5(esbuild@0.28.1)(tsx@4.23.1):
+  vite@8.1.5(@types/node@26.6.6)(esbuild@0.28.1)(tsx@4.23.1):
     dependencies:
       lightningcss: 1.33.0
       picomatch: 4.0.5
@@ -1873,14 +1905,15 @@ snapshots:
       rolldown: 1.1.5
       tinyglobby: 0.2.17
     optionalDependencies:
+      '@types/node': 26.6.6
       esbuild: 0.28.1
       fsevents: 2.3.3
       tsx: 4.23.1
 
-  vitest@4.1.10(vite@8.1.5(esbuild@0.28.1)(tsx@4.23.1)):
+  vitest@4.1.10(@types/node@26.6.6)(vite@8.1.5(@types/node@26.6.6)(esbuild@0.28.1)(tsx@4.23.1)):
     dependencies:
       '@vitest/expect': 4.1.10
-      '@vitest/mocker': 4.1.10(vite@8.1.5(esbuild@0.28.1)(tsx@4.23.1))
+      '@vitest/mocker': 4.1.10(vite@8.1.5(@types/node@26.6.6)(esbuild@0.28.1)(tsx@4.23.1))
       '@vitest/pretty-format': 4.1.10
       '@vitest/runner': 4.1.10
       '@vitest/snapshot': 4.1.10
@@ -1897,8 +1930,10 @@ snapshots:
       tinyexec: 1.2.4
       tinyglobby: 0.2.17
       tinyrainbow: 3.1.0
-      vite: 8.1.5(esbuild@0.28.1)(tsx@4.23.1)
+      vite: 8.1.5(@types/node@26.6.6)(esbuild@0.28.1)(tsx@4.23.1)
       why-is-node-running: 2.3.0
+    optionalDependencies:
+      '@types/node': 26.6.6
     transitivePeerDependencies:
       - msw
 

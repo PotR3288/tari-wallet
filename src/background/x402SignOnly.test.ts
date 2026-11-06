@@ -15,6 +15,8 @@ import { decryptOwnedUtxo, stealthUtxoSubstateId, WasmStealthCrypto } from "@tar
 import type { InputDeclaration } from "@tari-project/ootle-ts-bindings";
 import { SecretKeyWallet } from "@tari-project/ootle-secret-key-wallet";
 import { sha256 } from "@noble/hashes/sha2.js";
+import { Buffer } from "node:buffer";
+import { encode as cborEncode } from "cbor";
 
 type X402SignClaimOperation = Extract<TransactionRequestOperation, { kind: "x402SignClaim" }>;
 
@@ -64,11 +66,34 @@ function commitmentOf(network: ReturnType<typeof toOotleNetwork>, conditions: ob
   return commitment;
 }
 
+// The 0.48+ indexer serves substate values as base64-CBOR `SubstateValue` encodings, and ootle's
+// WASM decoder rejects pre-decoded objects — so offline fixtures must fabricate that exact wire
+// shape. This mirrors a live esmeralda Utxo payload (variant tag 8): the fixture's real stealth
+// witness is spliced into OutputBody; spend-authorization/tag are carried over from the live
+// template because decryption never reads them.
+const LIVE_UTXO_SPEND_AUTH = [0, [Buffer.from("9832146393a30f2f58cffcaad4eb297361a3b231a8e9b4c535c403fd05def567", "hex")]];
+const LIVE_UTXO_TAG = 2680283761;
+
+function encodeUtxoSubstateB64(publicNonceHex: string, encryptedDataHex: string): string {
+  // Buffer (not plain Uint8Array): the cbor package wraps bare Uint8Arrays in tag 64, which ootle's decoder rejects.
+  const bytes = (h: string) => Buffer.from(h, "hex");
+  // [variant=Utxo(8), [[UtxoOutput, is_frozen]]]; OutputBody = [public_nonce, encrypted_data, minimum_value_promise].
+  const utxoOutput = [
+    [bytes(publicNonceHex), bytes(encryptedDataHex), 0],
+    LIVE_UTXO_SPEND_AUTH,
+    LIVE_UTXO_TAG,
+  ];
+  return cborEncode([8, [[utxoOutput, false]]]).toString("base64");
+}
+
+// A live esmeralda component substate (a funded e2e wallet's own component — zero vaults), so the
+// WASM decode inside getVaultIdsForAccount exercises a real encoding; its state yields no vault ids.
+const COMPONENT_SUBSTATE_B64 = "ggCBgoVYIAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAggKBWCDk0YxTrrljHRInLWb0qYo4al4oDf2OylxzbOhw4ZZ8HYKkZ2JhbGFuY2WCAIBnZGVwb3NpdIIAgGxnZXRfYmFsYW5jZXOCAIBxd2l0aGRyYXdfYXBwcm92ZWSCAICCAYBB5IIAgIGCodiDWCABAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAdiEWCDkfAjV+kYIqsuktNnWK1xo/KlnkTVsJMp3fPtjAWAjpaA=";
+
 // A fabricated chain: exactly the reads buildSignedX402Claim makes, answered locally.
 function fakeChain(substateId: string, utxoBody: { encrypted_data: string; public_nonce: string }, componentAddress: string): X402ClaimChain {
-  const componentSubstate = { state: { up: { substate: { Component: { body: { state: [] } } } } } };
   return {
-    getSubstate: async (id: string) => (id === substateId ? { state: { up: { substate: { Utxo: { output: { output: utxoBody } } } } } } : componentSubstate),
+    getSubstate: async (id: string) => (id === substateId ? { state: { up: { substate: encodeUtxoSubstateB64(utxoBody.public_nonce, utxoBody.encrypted_data) } } } : { state: { up: { substate: COMPONENT_SUBSTATE_B64 } } }),
     getCurrentEpoch: async () => CURRENT_EPOCH,
     resolveInputs: async (inputs) => inputs.map((i) => ({ ...i, version: i.version ?? 1 })),
   };
@@ -213,7 +238,7 @@ describe("buildSignedX402Claim (offline real-crypto end to end: decrypt -> state
     const decrypted = await decryptOwnedUtxo(
       new WasmStealthCrypto(fixture.network),
       fixture.claimantKeys.view_key,
-      { state: { up: { substate: { Utxo: { output: { output: { encrypted_data: fixture.fundWitness.encrypted_data, public_nonce: fixture.fundWitness.sender_public_nonce } } } } } } } as never,
+      { state: { up: { substate: encodeUtxoSubstateB64(fixture.fundWitness.sender_public_nonce, fixture.fundWitness.encrypted_data) } } } as never,
       substateId
     );
     expect(decrypted?.value).toBe(AMOUNT);
