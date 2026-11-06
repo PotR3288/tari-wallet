@@ -36,8 +36,8 @@ import { IndexerProvider } from "@tari-project/ootle-indexer";
 import { encipherSeed } from "../../src/lib/cipherSeed";
 import { bytesToWords } from "../../src/lib/mnemonic";
 import type { X402PayTerms } from "../../src/lib/messages";
-import { pay402 } from "../../packages/x402-ootle/src/pay402.js";
-import { X402PaymentRequired } from "../../packages/x402-ootle/src/errors.js";
+import { pay402 } from "../../packages/x402-elim/src/pay402.js";
+import { X402PaymentRequired } from "../../packages/x402-elim/src/errors.js";
 
 // ─── Configuration (env-overridable) ────────────────────────────────────────────────────────
 

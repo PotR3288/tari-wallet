@@ -579,6 +579,9 @@ Chrome doesn't auto-update a sideloaded extension — repeat these steps with a 
 
 ## Testing
 
+**Node version:** run tests on Node ≤25 — CI pins 24. Under Node 26, `cbor@10.0.12` corrupts Buffer encoding (`encode(Buffer)` truncates to a single byte), which breaks the x402 sign-only fixtures; reproduced in a clean install.
+
+
 ```
 pnpm test              # unit tests (vitest) — pure logic: parsing, validation, error classification
 pnpm run test:watch    # same, in watch mode

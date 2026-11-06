@@ -1,7 +1,6 @@
 import { decipherSeed, encipherSeed } from "../src/lib/cipherSeed";
-import { deriveAccountKeys } from "../src/lib/derivation";
+import { deriveAccountKeys, deriveAccountComponentAddress } from "@chironbuilder/ootle-sdk";
 import { bytesToWords } from "../src/lib/mnemonic";
-import { deriveAccountComponentAddress } from "../src/lib/componentAddress";
 
 function assert(cond: boolean, msg: string) {
   if (!cond) throw new Error("FAIL: " + msg);

@@ -26,7 +26,7 @@ detection), d920e07 (docs for it).
   and the implemented v2-response detection.
 - docs/integration/transaction-requests.md: the create/approve/submit transaction-request
   flow both new kinds use (reload-resume, no programmatic approval).
-- packages/x402-ootle/README.md: the client package (@potr3288/x402-ootle) — pay402()
+- packages/x402-elim/README.md: the client package (x402-elim) — pay402()
   fetch wrapper, pay(), settle(), refund on expiry, error taxonomy.
 - e2e/harness/README.md: the live-testnet harness (real popup approvals, deterministic
   wallets, frozen-facilitator refund scenario) and the local facilitator stand-in.
