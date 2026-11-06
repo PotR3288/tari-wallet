@@ -106,6 +106,12 @@ servers and tests that want the flat quote without a fetch.
   signed claim is POSTed to) comes from the 402 response header. In a browser the
   same-origin-ish threat model is ordinary; never reuse this library server-side
   without gating `facilitatorUrl` against an allowlist first.
+- **Settlement confirmation is trust-based.** The facilitator reports settlement status
+  (`held`/`broadcast`/`confirmed`/`expired`) and `chainTxId` as plain JSON — the client does
+  not verify a facilitator signature. The safety net is wallet-side: funds sit in the HTLC
+  escrow until the claim broadcasts, and `outputMask` + `requestId` are preserved so the
+  caller can drive `tari_htlcRefund` once the refund epoch passes. Treat the facilitator as
+  a semi-trusted party and surface settlement status to the user rather than as chain truth.
 
 ## Spec
 
