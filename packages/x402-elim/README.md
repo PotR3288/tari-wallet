@@ -1,4 +1,4 @@
-# x402-elim
+# @asterius/x402-elim
 
 Zero-dependency TypeScript client for **x402 payments over the Tari Ootle wallet
 extension**: capture a facilitator's 402 quote, pay it through the injected
@@ -12,7 +12,7 @@ create/get/submit reference implementation exactly.
 ## Install
 
 ```sh
-pnpm add x402-elim
+pnpm add @asterius/x402-elim
 ```
 
 Requires the Tari Ootle wallet extension to be installed for `pay`/`signClaim`
@@ -22,7 +22,7 @@ structurally, never imported.
 ## The four functions
 
 ```ts
-import { pay402, pay, settle, verifyBody } from "x402-elim";
+import { pay402, pay, settle, verifyBody } from "@asterius/x402-elim";
 
 // 1. Wrap fetch: a 402 becomes a typed X402PaymentRequired error carrying the parsed
 //    quote (validated: required fields, hex formats, unexpired). Everything else
@@ -64,7 +64,7 @@ The merchant side's signed claim comes from the wallet's `x402SignClaim` kind; t
 package ships a thin helper that polls it to the stored result:
 
 ```ts
-import { signClaim } from "x402-elim";
+import { signClaim } from "@asterius/x402-elim";
 const signedClaim = await signClaim({
   envelope: quote,
   preimageHex,

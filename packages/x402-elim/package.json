@@ -1,5 +1,5 @@
 {
-  "name": "x402-elim",
+  "name": "@asterius/x402-elim",
   "version": "0.2.0",
   "description": "Client library for x402 HTTP payments over the Tari Ootle wallet extension: 402-quote capture, pay with persistence+resume, facilitator settlement, body integrity verification.",
   "type": "module",
