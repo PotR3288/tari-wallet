@@ -140,3 +140,19 @@ export class X402PollTimeoutError extends Error {
     this.localDigest = ids.localDigest;
   }
 }
+
+/**
+ * `settle()` was called from a server-side runtime (Node) without the explicit
+ * `allowServerSide` opt-in. The library is browser-only by contract: the settle POST
+ * sends a signed claim payload to a server-controlled `facilitatorUrl`, which is an
+ * exfiltration vector in a server process. Server-side integrators must opt in —
+ * and are expected to gate `facilitatorUrl` against an allowlist first.
+ */
+export class X402BrowserOnlyError extends Error {
+  constructor(fn: string) {
+    super(
+      `${fn}() is browser-only: it POSTs a signed claim payload to the quote's facilitatorUrl, which is server-controlled data. Call it from the payer's browser, or pass { allowServerSide: true } — and only after gating facilitatorUrl against an allowlist.`
+    );
+    this.name = "X402BrowserOnlyError";
+  }
+}

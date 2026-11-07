@@ -15,5 +15,6 @@ export {
   X402SettlementExpired,
   X402MissingOutputMaskError,
   X402PollTimeoutError,
+  X402BrowserOnlyError,
 } from "./errors.js";
 export type { X402Quote, X402PaymentRecord, X402SignedClaim, SettlementResult } from "./types.js";

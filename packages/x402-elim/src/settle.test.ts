@@ -2,6 +2,7 @@ import { describe, expect, it, vi } from "vitest";
 import {
   settle,
   X402MissingOutputMaskError,
+  X402BrowserOnlyError,
   X402PollTimeoutError,
   X402SettlementExpired,
   type X402PaymentRecord,
@@ -9,7 +10,7 @@ import {
 } from "./index.js";
 import { makeQuote } from "./test-utils.js";
 
-const fast = { pollIntervalMs: 1 };
+const fast = { pollIntervalMs: 1, allowServerSide: true };
 
 function makeRecord(overrides: Partial<X402PaymentRecord> = {}): X402PaymentRecord {
   return {
@@ -155,10 +156,10 @@ describe("settle poll bounds (audit #2)", () => {
     const signed = makeSignedClaim();
     stubFetch(() => new Response(JSON.stringify({ status: "held" }), { status: 200 }));
     await expect(
-      settle(record, signed, { pollIntervalMs: 1, pollTimeoutMs: 40 })
+      settle(record, signed, { pollIntervalMs: 1, pollTimeoutMs: 40, allowServerSide: true })
     ).rejects.toBeInstanceOf(X402PollTimeoutError);
     await expect(
-      settle(record, signed, { pollIntervalMs: 1, pollTimeoutMs: 40 })
+      settle(record, signed, { pollIntervalMs: 1, pollTimeoutMs: 40, allowServerSide: true })
     ).rejects.toMatchObject({ localDigest: signed.txHash });
   });
 
@@ -167,7 +168,7 @@ describe("settle poll bounds (audit #2)", () => {
     const signed = makeSignedClaim();
     stubFetch(() => new Response(JSON.stringify({ status: "held" }), { status: 200 }));
     await expect(
-      settle(record, signed, { pollIntervalMs: 1, pollTimeoutMs: 60_000 })
+      settle(record, signed, { pollIntervalMs: 1, pollTimeoutMs: 60_000, allowServerSide: true })
     ).rejects.toBeInstanceOf(X402SettlementExpired);
   });
 
@@ -175,7 +176,25 @@ describe("settle poll bounds (audit #2)", () => {
     const record = makeRecord();
     const signed = makeSignedClaim();
     stubFetch(() => new Response(JSON.stringify({ status: "confirmed", chainTxId: "t" }), { status: 200 }));
-    const result = await settle(record, signed, { pollIntervalMs: 1, pollTimeoutMs: 0 });
+    const result = await settle(record, signed, { pollIntervalMs: 1, pollTimeoutMs: 0, allowServerSide: true });
+    expect(result.status).toBe("confirmed");
+  });
+});
+
+describe("server-side guard (audit #3)", () => {
+  it("settle throws X402BrowserOnlyError in Node without the explicit opt-in", async () => {
+    const record = makeRecord();
+    const signed = makeSignedClaim();
+    await expect(settle(record, signed, { pollIntervalMs: 1 })).rejects.toBeInstanceOf(
+      X402BrowserOnlyError
+    );
+  });
+
+  it("settle proceeds in Node with allowServerSide: true", async () => {
+    const record = makeRecord();
+    const signed = makeSignedClaim();
+    stubFetch(() => new Response(JSON.stringify({ status: "confirmed", chainTxId: "t" }), { status: 200 }));
+    const result = await settle(record, signed, { pollIntervalMs: 1, allowServerSide: true });
     expect(result.status).toBe("confirmed");
   });
 });

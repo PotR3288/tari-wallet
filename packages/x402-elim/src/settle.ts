@@ -1,4 +1,4 @@
-import { X402MissingOutputMaskError, X402PollTimeoutError, X402SettlementExpired } from "./errors.js";
+import { X402BrowserOnlyError, X402MissingOutputMaskError, X402PollTimeoutError, X402SettlementExpired } from "./errors.js";
 
 /** Default bound on the held-settlement poll loop: five minutes. Also capped at the quote's expiresAt. */
 export const DEFAULT_SETTLE_POLL_TIMEOUT_MS = 5 * 60_000;
@@ -55,8 +55,25 @@ function parseStatus(
 export async function settle(
   record: X402PaymentRecord,
   signedPayload: X402SignedClaim,
-  opts?: { pollIntervalMs?: number; pollTimeoutMs?: number }
+  opts?: {
+    pollIntervalMs?: number;
+    pollTimeoutMs?: number;
+    /** Explicit opt-out of the browser-only guard (server-side integrators MUST allowlist facilitatorUrl first). */
+    allowServerSide?: boolean;
+  }
 ): Promise<SettlementResult> {
+  // Server-side runtime guard (audit finding #3): the settle POST carries a signed
+  // claim payload to a URL that comes from the (server-controlled) quote. In the
+  // payer's browser that destination is gated by the same-origin model; in a server
+  // process it is an exfiltration vector, so require an explicit opt-in.
+  const g = globalThis as { window?: unknown; process?: { versions?: { node?: string } } };
+  const isServerRuntime =
+    typeof g.process !== "undefined" &&
+    typeof g.window === "undefined" &&
+    Boolean(g.process?.versions?.node);
+  if (isServerRuntime && !opts?.allowServerSide) {
+    throw new X402BrowserOnlyError("settle");
+  }
   if (typeof record.outputMask !== "string" || record.outputMask === "") {
     throw new X402MissingOutputMaskError();
   }

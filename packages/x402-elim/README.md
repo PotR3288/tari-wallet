@@ -76,7 +76,7 @@ const signedClaim = await signClaim({
 Errors are one distinct class per rejection cause (`X402PaymentRequired`,
 `X402QuoteParseError`, `X402UnsupportedVersionError`, `X402WalletError`,
 `X402NoWalletError`, `X402IncompleteResultError`, `X402SettlementExpired`,
-`X402MissingOutputMaskError`, `X402PollTimeoutError`) — never a shared "invalid request" bucket.
+`X402MissingOutputMaskError`, `X402PollTimeoutError`, `X402BrowserOnlyError`) — never a shared "invalid request" bucket.
 Foundation x402 v2 interop (Phase A wire conformance): when a 402 carries a base64-encoded
 foundation v2 `PaymentRequired`, `pay402()` decodes it and normalizes any payable Ootle entry
 onto the flat envelope — an entry is payable when it has `scheme: "exact"`, the Ootle `extra`
@@ -93,10 +93,11 @@ servers and tests that want the flat quote without a fetch.
 
 ## Integrator notes
 
-- **Browser-only by design.** `pay()`/`loadRecord()` persist to `localStorage`
-  directly and the wallet lives on `window.tari` — there is no Node/server guard,
-  and both fail naturally (`localStorage` undefined, `X402NoWalletError`). Do not
-  call `pay`, `signClaim`, or `settle` from server-side code. `pay402()`,
+- **Browser-only, enforced.** `pay()`/`loadRecord()` persist to `localStorage`
+  and the wallet lives on `window.tari`; `settle()` additionally hard-guards the
+  server-side runtime and throws `X402BrowserOnlyError` in Node unless the caller
+  passes `{ allowServerSide: true }` — required before any server-side use, and
+  only after gating `facilitatorUrl` against an allowlist. `pay402()`,
   `validateQuote`, `normalizeFoundationV2`, and `verifyBody` are runtime-neutral.
 - **Always pass the integrity pin.** `verifyBody()` resolves `true` (no-op) when the
   quote carries no `resourceSha256` — that absence is a facilitator configuration
