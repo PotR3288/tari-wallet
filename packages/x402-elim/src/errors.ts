@@ -119,3 +119,24 @@ export class X402MissingOutputMaskError extends Error {
     this.name = "X402MissingOutputMaskError";
   }
 }
+
+/**
+ * A poll loop gave up: the wallet transaction request or the facilitator settlement
+ * stayed non-terminal past the configured `pollTimeoutMs` (or, for settlement, past
+ * the quote's own `expiresAt` before reaching a terminal status). The underlying
+ * operation may still complete wallet-side — inspect `requestId`/`localDigest`.
+ */
+export class X402PollTimeoutError extends Error {
+  /** The wallet-side request id, when the timeout hit a transaction-request poll. */
+  readonly requestId?: string;
+  /** The settlement digest, when the timeout hit a settlement poll. */
+  readonly localDigest?: string;
+  constructor(detail: string, ids: { requestId?: string; localDigest?: string } = {}) {
+    super(
+      `${detail} Polling gave up after the configured pollTimeoutMs — the underlying operation may still complete; retry or inspect this id.`
+    );
+    this.name = "X402PollTimeoutError";
+    this.requestId = ids.requestId;
+    this.localDigest = ids.localDigest;
+  }
+}

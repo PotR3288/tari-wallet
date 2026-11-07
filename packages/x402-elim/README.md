@@ -76,7 +76,7 @@ const signedClaim = await signClaim({
 Errors are one distinct class per rejection cause (`X402PaymentRequired`,
 `X402QuoteParseError`, `X402UnsupportedVersionError`, `X402WalletError`,
 `X402NoWalletError`, `X402IncompleteResultError`, `X402SettlementExpired`,
-`X402MissingOutputMaskError`) — never a shared "invalid request" bucket.
+`X402MissingOutputMaskError`, `X402PollTimeoutError`) — never a shared "invalid request" bucket.
 Foundation x402 v2 interop (Phase A wire conformance): when a 402 carries a base64-encoded
 foundation v2 `PaymentRequired`, `pay402()` decodes it and normalizes any payable Ootle entry
 onto the flat envelope — an entry is payable when it has `scheme: "exact"`, the Ootle `extra`
@@ -102,6 +102,12 @@ servers and tests that want the flat quote without a fetch.
   quote carries no `resourceSha256` — that absence is a facilitator configuration
   gap, not a reason to skip the check. For paid content, treat a quote without a
   `resourceSha256` pin as suspect and gate the body on the check either way.
+- **Poll loops are bounded.** Wallet polls (`pay`/`signClaim`/resume) give up after
+  `pollTimeoutMs` (default 10 minutes) with `X402PollTimeoutError` carrying the
+  `requestId`; `settle` gives up after `pollTimeoutMs` (default 5 minutes), also
+  capped at the quote's `expiresAt` — past expiry the correct answer is the refund
+  path (`X402SettlementExpired`), not more polling. The underlying operation may
+  still complete; these bounds exist so an integration cannot hang forever.
 - **`facilitatorUrl` is server-controlled.** The quote (and therefore the URL the
   signed claim is POSTed to) comes from the 402 response header. In a browser the
   same-origin-ish threat model is ordinary; never reuse this library server-side

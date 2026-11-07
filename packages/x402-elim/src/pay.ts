@@ -1,4 +1,5 @@
-import { X402IncompleteResultError, X402NoWalletError, X402WalletError } from "./errors.js";
+import { X402IncompleteResultError, X402NoWalletError, X402PollTimeoutError, X402WalletError } from "./errors.js";
+import { DEFAULT_POLL_TIMEOUT_MS } from "./tari.js";
 import type { X402PaymentRecord, X402Quote, X402SignedClaim } from "./types.js";
 import { createAndSubmit, getTari, type TariProvider } from "./tari.js";
 
@@ -89,7 +90,7 @@ export function hasTari(): boolean {
  */
 export async function pay(
   quote: X402Quote,
-  opts?: { pollIntervalMs?: number }
+  opts?: { pollIntervalMs?: number; pollTimeoutMs?: number }
 ): Promise<X402PaymentRecord> {
   const tari = getTari();
   if (!tari) throw new X402NoWalletError();
@@ -148,9 +149,10 @@ export async function pay(
 async function resume(
   tari: TariProvider,
   requestId: string,
-  opts?: { pollIntervalMs?: number }
+  opts?: { pollIntervalMs?: number; pollTimeoutMs?: number }
 ): Promise<{ requestId: string; result: X402PayResult }> {
   const interval = opts?.pollIntervalMs ?? 700;
+  const deadline = Date.now() + (opts?.pollTimeoutMs ?? DEFAULT_POLL_TIMEOUT_MS);
   for (;;) {
     const record = (await tari.request({
       method: "tari_getTransactionRequest",
@@ -173,6 +175,12 @@ async function resume(
         throw new X402WalletError(record.error ?? `Transaction ${record.status}.`, requestId, record.status);
       case "pending":
       case "submitting":
+        if (Date.now() >= deadline) {
+          throw new X402PollTimeoutError(
+            `Resumed transaction request ${requestId} stayed '${record?.status}' past the poll deadline.`,
+            { requestId }
+          );
+        }
         await new Promise<void>((resolve) => setTimeout(resolve, interval));
         break;
       default:
@@ -201,7 +209,7 @@ export interface X402SignClaimParams {
  */
 export async function signClaim(
   params: X402SignClaimParams,
-  opts?: { pollIntervalMs?: number }
+  opts?: { pollIntervalMs?: number; pollTimeoutMs?: number }
 ): Promise<X402SignedClaim> {
   const tari = getTari();
   if (!tari) throw new X402NoWalletError();

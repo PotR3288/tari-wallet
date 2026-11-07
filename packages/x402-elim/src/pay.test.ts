@@ -5,6 +5,7 @@ import {
   signClaim,
   storageKey,
   X402NoWalletError,
+  X402PollTimeoutError,
   X402WalletError,
   type X402PaymentRecord,
   type X402Quote,
@@ -332,5 +333,27 @@ describe("signClaim", () => {
     );
     expect(result).toEqual(signed);
     expect(tari.calls[0]?.params?.kind).toBe("x402SignClaim");
+  });
+});
+
+describe("poll bounds (audit #2)", () => {
+  it("pay throws X402PollTimeoutError when the request stays pending past pollTimeoutMs", async () => {
+    makeTari({
+      tari_createTransactionRequest: () => ({ requestId: "req-timeout" }),
+      tari_getTransactionRequest: () => ({ status: "pending" }),
+    });
+    await expect(
+      pay(makeQuote(), { pollIntervalMs: 1, pollTimeoutMs: 40 })
+    ).rejects.toBeInstanceOf(X402PollTimeoutError);
+  });
+
+  it("the timeout error carries the requestId", async () => {
+    makeTari({
+      tari_createTransactionRequest: () => ({ requestId: "req-timeout" }),
+      tari_getTransactionRequest: () => ({ status: "submitting" }),
+    });
+    await expect(
+      pay(makeQuote(), { pollIntervalMs: 1, pollTimeoutMs: 40 })
+    ).rejects.toMatchObject({ requestId: "req-timeout" });
   });
 });

@@ -1,4 +1,7 @@
-import { X402MissingOutputMaskError, X402SettlementExpired } from "./errors.js";
+import { X402MissingOutputMaskError, X402PollTimeoutError, X402SettlementExpired } from "./errors.js";
+
+/** Default bound on the held-settlement poll loop: five minutes. Also capped at the quote's expiresAt. */
+export const DEFAULT_SETTLE_POLL_TIMEOUT_MS = 5 * 60_000;
 import type { SettlementResult, X402PaymentRecord, X402SignedClaim } from "./types.js";
 
 const sleep = (ms: number) => new Promise<void>((resolve) => setTimeout(resolve, ms));
@@ -52,12 +55,18 @@ function parseStatus(
 export async function settle(
   record: X402PaymentRecord,
   signedPayload: X402SignedClaim,
-  opts?: { pollIntervalMs?: number }
+  opts?: { pollIntervalMs?: number; pollTimeoutMs?: number }
 ): Promise<SettlementResult> {
   if (typeof record.outputMask !== "string" || record.outputMask === "") {
     throw new X402MissingOutputMaskError();
   }
   const interval = opts?.pollIntervalMs ?? 700;
+  // Poll bound: the caller's timeout, additionally capped at the quote's own expiry —
+  // past expiresAt the facilitator can no longer honor the quote, so the refund path
+  // (X402SettlementExpired) is the correct answer either way.
+  const requested = Date.now() + (opts?.pollTimeoutMs ?? DEFAULT_SETTLE_POLL_TIMEOUT_MS);
+  const expiresAt = record.quote.expiresAt;
+  const deadline = Number.isFinite(expiresAt) ? Math.min(requested, expiresAt) : requested;
   const localDigest = signedPayload.txHash;
 
   const response = await fetch(settleUrl(record.quote.facilitatorUrl), {
@@ -77,6 +86,15 @@ export async function settle(
       throw new Error(`Facilitator settlement GET failed: HTTP ${String(poll.status)}.`);
     }
     current = parseStatus(await poll.json());
+    if (current.status === "held" && Date.now() >= deadline) {
+      if (Date.now() >= expiresAt) {
+        throw new X402SettlementExpired(record, localDigest);
+      }
+      throw new X402PollTimeoutError(
+        `Settlement ${localDigest} stayed 'held' past the poll deadline.`,
+        { localDigest }
+      );
+    }
   }
 
   if (current.status === "expired") {

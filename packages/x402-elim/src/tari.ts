@@ -4,7 +4,10 @@
  * package never imports extension internals.
  */
 
-import { X402WalletError } from "./errors.js";
+import { X402PollTimeoutError, X402WalletError } from "./errors.js";
+
+/** Default bound on the pending/submitting poll loop: ten minutes of silence gives up. */
+export const DEFAULT_POLL_TIMEOUT_MS = 10 * 60_000;
 
 /** A JSON-RPC-ish request record as returned by `tari_getTransactionRequest`. */
 export interface TariRequestRecord {
@@ -46,11 +49,14 @@ export async function createAndSubmit<T>(
   operation: Record<string, unknown>,
   opts?: {
     pollIntervalMs?: number;
+    /** Upper bound on the pending/submitting poll loop (default: 10 minutes). */
+    pollTimeoutMs?: number;
     /** Called with the requestId immediately after create, before the first poll. */
     onCreated?: (requestId: string) => void;
   }
 ): Promise<{ requestId: string; result: T }> {
   const interval = opts?.pollIntervalMs ?? 700;
+  const deadline = Date.now() + (opts?.pollTimeoutMs ?? DEFAULT_POLL_TIMEOUT_MS);
   const created = (await tari.request({
     method: "tari_createTransactionRequest",
     params: operation,
@@ -79,6 +85,12 @@ export async function createAndSubmit<T>(
         throw new X402WalletError(record.error ?? `Transaction ${record.status}.`, requestId, record.status);
       case "pending":
       case "submitting":
+        if (Date.now() >= deadline) {
+          throw new X402PollTimeoutError(
+            `Transaction request ${requestId} stayed '${record?.status}' past the poll deadline.`,
+            { requestId }
+          );
+        }
         await sleep(interval);
         break;
       default:

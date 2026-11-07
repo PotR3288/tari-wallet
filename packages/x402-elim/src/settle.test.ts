@@ -2,6 +2,7 @@ import { describe, expect, it, vi } from "vitest";
 import {
   settle,
   X402MissingOutputMaskError,
+  X402PollTimeoutError,
   X402SettlementExpired,
   type X402PaymentRecord,
   type X402SignedClaim,
@@ -145,5 +146,36 @@ describe("settle", () => {
     const spy = stubFetch(() => new Response(JSON.stringify({ status: "confirmed", chainTxId: "tx-1" }), { status: 200 }));
     await settle(record, makeSignedClaim(), fast);
     expect(spy.mock.calls[0]?.[0]).toBe("https://indexer.example/x402/settle");
+  });
+});
+
+describe("settle poll bounds (audit #2)", () => {
+  it("throws X402PollTimeoutError when held persists past pollTimeoutMs", async () => {
+    const record = makeRecord();
+    const signed = makeSignedClaim();
+    stubFetch(() => new Response(JSON.stringify({ status: "held" }), { status: 200 }));
+    await expect(
+      settle(record, signed, { pollIntervalMs: 1, pollTimeoutMs: 40 })
+    ).rejects.toBeInstanceOf(X402PollTimeoutError);
+    await expect(
+      settle(record, signed, { pollIntervalMs: 1, pollTimeoutMs: 40 })
+    ).rejects.toMatchObject({ localDigest: signed.txHash });
+  });
+
+  it("caps the poll at the quote's expiresAt and throws X402SettlementExpired", async () => {
+    const record = makeRecord({ quote: makeQuote({ expiresAt: Date.now() - 1 }) });
+    const signed = makeSignedClaim();
+    stubFetch(() => new Response(JSON.stringify({ status: "held" }), { status: 200 }));
+    await expect(
+      settle(record, signed, { pollIntervalMs: 1, pollTimeoutMs: 60_000 })
+    ).rejects.toBeInstanceOf(X402SettlementExpired);
+  });
+
+  it("no timeout error when the POST immediately resolves", async () => {
+    const record = makeRecord();
+    const signed = makeSignedClaim();
+    stubFetch(() => new Response(JSON.stringify({ status: "confirmed", chainTxId: "t" }), { status: 200 }));
+    const result = await settle(record, signed, { pollIntervalMs: 1, pollTimeoutMs: 0 });
+    expect(result.status).toBe("confirmed");
   });
 });
